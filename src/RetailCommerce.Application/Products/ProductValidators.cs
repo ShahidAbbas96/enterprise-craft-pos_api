@@ -1,0 +1,34 @@
+using FluentValidation;
+using RetailCommerce.Domain.Common;
+
+namespace RetailCommerce.Application.Products;
+
+public class UpsertProductRequestValidator : AbstractValidator<UpsertProductRequest>
+{
+    public UpsertProductRequestValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Sku).NotEmpty().MaximumLength(50);
+        RuleFor(x => x.DepartmentId).NotEmpty();
+        RuleFor(x => x.GenderId).NotEmpty();
+        RuleFor(x => x.EventTypeId).NotEmpty();
+        RuleFor(x => x.CategoryId).NotEmpty();
+        RuleFor(x => x.Cost).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.Price).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.WholesalePrice).GreaterThanOrEqualTo(0).When(x => x.WholesalePrice is not null);
+        RuleFor(x => x.TaxRatePercent).InclusiveBetween(0, 100);
+        RuleFor(x => x.DiscountPercent).InclusiveBetween(0, 100);
+        RuleFor(x => x.Unit).NotEmpty().MaximumLength(20);
+        RuleFor(x => x.MinStock).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.MaxStock).GreaterThanOrEqualTo(0).When(x => x.MaxStock is not null);
+        RuleFor(x => x.ReorderLevel).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.Status)
+            .Must(s => Enum.TryParse<ProductStatus>(s, ignoreCase: true, out _))
+            .WithMessage("Status must be one of: Draft, Active, Inactive.");
+        RuleFor(x => x.InitialStockQuantity).GreaterThanOrEqualTo(0).When(x => x.InitialStockQuantity is not null);
+        RuleFor(x => x.InitialStockWarehouseId)
+            .NotEmpty()
+            .WithMessage("A warehouse is required when setting an initial stock quantity.")
+            .When(x => x.InitialStockQuantity is > 0);
+    }
+}

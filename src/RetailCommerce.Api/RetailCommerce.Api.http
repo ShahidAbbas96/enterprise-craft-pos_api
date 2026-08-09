@@ -1,0 +1,6 @@
+@RetailCommerce.Api_HostAddress = http://localhost:5012
+
+GET {{RetailCommerce.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
