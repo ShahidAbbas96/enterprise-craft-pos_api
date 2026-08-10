@@ -70,11 +70,22 @@ public class ProductBarcodeConfiguration : IEntityTypeConfiguration<ProductBarco
 
         b.Property(x => x.Code).HasMaxLength(60).IsRequired();
         b.HasIndex(x => x.Code).IsUnique();
-        b.HasIndex(x => new { x.ProductId, x.IsCurrent });
+        b.HasIndex(x => new { x.ProductId, x.IsPrimary });
 
         b.HasOne(x => x.Product)
             .WithMany(p => p.Barcodes)
             .HasForeignKey(x => x.ProductId)
             .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public class BarcodeSettingsConfiguration : IEntityTypeConfiguration<BarcodeSettings>
+{
+    public void Configure(EntityTypeBuilder<BarcodeSettings> b)
+    {
+        b.ToTable("BarcodeSettings");
+        b.Property(x => x.CompanyName).HasMaxLength(200).IsRequired();
+        b.Property(x => x.LabelWidthInches).HasPrecision(5, 2);
+        b.Property(x => x.LabelHeightInches).HasPrecision(5, 2);
     }
 }

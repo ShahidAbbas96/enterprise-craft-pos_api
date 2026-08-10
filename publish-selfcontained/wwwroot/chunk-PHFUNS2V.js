@@ -1,0 +1,1 @@
+import{J as o,Q as a,Sb as n,Vb as r,W as e}from"./chunk-GYX2CZ7X.js";var s=class t{http=e(n);snapshot$;getSnapshot(){return this.snapshot$||(this.snapshot$=this.http.get(`${r.apiBaseUrl}/taxonomy/snapshot`).pipe(o(1))),this.snapshot$}static \u0275fac=function(p){return new(p||t)};static \u0275prov=a({token:t,factory:t.\u0275fac,providedIn:"root"})};export{s as a};

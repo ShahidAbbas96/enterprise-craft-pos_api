@@ -13,21 +13,30 @@ using RetailCommerce.Infrastructure.Products;
 namespace RetailCommerce.Infrastructure.Persistence.Seed;
 
 /// <summary>
-/// Dev/staging seed data. Safe to run repeatedly — every step is guarded so it only inserts
-/// once. NEVER point this at a production database; the admin password below is a well-known
+/// <see cref="BootstrapAsync"/> is safe against a real/production database — it only applies
+/// migrations and ensures roles + a single default admin login exist, no sample data. Every step
+/// is idempotent (guarded so it only inserts once), so it's safe to run on every process startup
+/// in every environment.
+///
+/// <see cref="SeedDemoDataAsync"/> is dev/staging-only sample data and is never called outside
+/// <c>IsDevelopment()</c> (see Program.cs) — the admin password it shares is a well-known
 /// local-dev-only value that must be rotated before any real deployment.
 ///
-/// The taxonomy, categories, subcategories, attribute types/options and collections seeded here
-/// are transcribed directly from the client's "DESIRE ITEM MASTER HIERARCHY.xlsx" sample (62
-/// rows) — see CLAUDE.md §5. The sample products below reuse that sheet's ItemCode/department/
-/// taxonomy combinations, but Cost/Price/stock figures are placeholder dev values (the source
-/// sheet had no pricing) and must be replaced with real data before go-live.
+/// The taxonomy, categories, subcategories, attribute types/options and collections seeded by
+/// <see cref="SeedDemoDataAsync"/> are transcribed directly from the client's "DESIRE ITEM MASTER
+/// HIERARCHY.xlsx" sample (62 rows) — see CLAUDE.md §5. The sample products reuse that sheet's
+/// ItemCode/department/taxonomy combinations, but Cost/Price/stock figures are placeholder dev
+/// values (the source sheet had no pricing) and must be replaced with real data before go-live.
 /// </summary>
 public static class DbSeeder
 {
     private const string DevAdminPassword = "ChangeMe!123";
 
-    public static async Task SeedAsync(IServiceProvider services)
+    /// <summary>Runs on every startup in every environment: applies pending EF Core migrations
+    /// (creating the schema on a brand-new database), ensures the built-in roles and a default
+    /// admin login exist, and keeps barcode settings/backfill in sync. Contains no sample/demo
+    /// data — safe to point at a real deployment's database.</summary>
+    public static async Task BootstrapAsync(IServiceProvider services)
     {
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -40,11 +49,22 @@ public static class DbSeeder
         await SeedRolesAsync(roleManager);
         await SeedAdminUserAsync(userManager, logger);
 
-        // Runs every startup (not gated by the taxonomy-seeded check below) — existing products'
-        // old random-EAN13 barcodes are invalid under the new {Sku}-{Size}-{Color} scheme, and
-        // any product a future import/seed adds without going through ProductService also needs
-        // one. Idempotent: only touches products with no current barcode row yet.
+        // Existing products' old random-EAN13 barcodes are invalid under the new
+        // {Sku}-{Size}-{Color} scheme, and any product a future import adds without going
+        // through ProductService also needs one. Idempotent: only touches products with no
+        // current barcode row yet — a no-op on a database with no products.
         await BackfillProductBarcodesAsync(db, logger);
+        await EnsureBarcodeSettingsAsync(db);
+    }
+
+    /// <summary>Dev/staging-only sample taxonomy + catalog + demo store/warehouses (see class
+    /// remarks). Only ever called from Program.cs behind <c>IsDevelopment()</c> — never call this
+    /// against a database meant to hold a real store's data.</summary>
+    public static async Task SeedDemoDataAsync(IServiceProvider services)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DbSeeder");
 
         if (await db.Departments.AnyAsync())
         {
@@ -109,7 +129,7 @@ public static class DbSeeder
     private static async Task BackfillProductBarcodesAsync(AppDbContext db, ILogger logger)
     {
         var productIds = await db.Products
-            .Where(p => !db.ProductBarcodes.Any(b => b.ProductId == p.Id && b.IsCurrent))
+            .Where(p => !db.ProductBarcodes.Any(b => b.ProductId == p.Id && b.IsPrimary))
             .Select(p => p.Id)
             .ToListAsync();
 
@@ -122,6 +142,13 @@ public static class DbSeeder
         }
 
         logger.LogInformation("Backfilled deterministic barcodes for {Count} product(s).", productIds.Count);
+    }
+
+    private static async Task EnsureBarcodeSettingsAsync(AppDbContext db)
+    {
+        if (await db.BarcodeSettings.AnyAsync()) return;
+        db.BarcodeSettings.Add(new Domain.Catalog.BarcodeSettings());
+        await db.SaveChangesAsync();
     }
 
     private static async Task<Dictionary<string, Department>> SeedDepartmentsAsync(AppDbContext db)

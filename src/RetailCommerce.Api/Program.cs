@@ -96,11 +96,16 @@ var app = builder.Build();
 
 app.UseExceptionHandler();
 
+// Applies pending migrations (creates the schema on a brand-new database) and ensures roles +
+// a default admin login exist — runs in every environment, not just Development, so a fresh
+// deploy against an empty PostgreSQL database is immediately usable.
+await DbSeeder.BootstrapAsync(app.Services);
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
-    await DbSeeder.SeedAsync(app.Services);
+    await DbSeeder.SeedDemoDataAsync(app.Services);
 }
 
 app.UseHttpsRedirection();
@@ -108,5 +113,13 @@ app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// Serves the Angular production build when its files are published into wwwroot alongside this
+// API (see DEPLOYMENT.md) — lets one process/port serve both the app and the API, so a
+// same-origin deployment needs no CORS setup and no separate web server. No-op in local dev,
+// where wwwroot doesn't exist and the Angular CLI dev server is used instead.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.MapFallbackToFile("index.html");
 
 app.Run();

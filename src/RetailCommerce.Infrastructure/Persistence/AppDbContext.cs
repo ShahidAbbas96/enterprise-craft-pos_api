@@ -31,6 +31,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, 
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductAttributeValue> ProductAttributeValues => Set<ProductAttributeValue>();
     public DbSet<ProductBarcode> ProductBarcodes => Set<ProductBarcode>();
+    public DbSet<BarcodeSettings> BarcodeSettings => Set<BarcodeSettings>();
 
     // Parties
     public DbSet<Customer> Customers => Set<Customer>();

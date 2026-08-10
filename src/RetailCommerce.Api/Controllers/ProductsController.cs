@@ -15,13 +15,49 @@ public class ProductsController(IProductService productService, IBarcodeService 
         return Ok(await productService.ListAsync(query, ct));
     }
 
-    /// <summary>A product's barcode is computed automatically from its Sku/Size/Color on save —
-    /// this returns every barcode it has ever had (current first), since old ones stay valid
-    /// forever once printed rather than being overwritten.</summary>
+    /// <summary>A product's primary barcode is computed automatically from its Sku/Size/Color on
+    /// save, but it can also carry other active barcodes (manually added, or preserved from
+    /// import) — this returns all of them, primary first.</summary>
     [HttpGet("{id:guid}/barcode-history")]
     public async Task<ActionResult<IReadOnlyList<ProductBarcodeDto>>> BarcodeHistory(Guid id, CancellationToken ct)
     {
         return Ok(await barcodeService.GetHistoryAsync(id, ct));
+    }
+
+    [HttpPost("{id:guid}/barcodes")]
+    [Authorize(Policy = "CatalogManagers")]
+    public async Task<ActionResult<ProductBarcodeDto>> AddBarcode(Guid id, AddProductBarcodeRequest request, CancellationToken ct)
+    {
+        return Ok(await barcodeService.AddManualBarcodeAsync(id, request.Code, ct));
+    }
+
+    [HttpPut("{id:guid}/barcodes/{barcodeId:guid}/primary")]
+    [Authorize(Policy = "CatalogManagers")]
+    public async Task<IActionResult> SetPrimaryBarcode(Guid id, Guid barcodeId, CancellationToken ct)
+    {
+        await barcodeService.SetPrimaryBarcodeAsync(id, barcodeId, ct);
+        return NoContent();
+    }
+
+    [HttpPut("{id:guid}/barcodes/{barcodeId:guid}/active")]
+    [Authorize(Policy = "CatalogManagers")]
+    public async Task<IActionResult> SetBarcodeActive(Guid id, Guid barcodeId, [FromQuery] bool isActive, CancellationToken ct)
+    {
+        await barcodeService.SetBarcodeActiveAsync(id, barcodeId, isActive, ct);
+        return NoContent();
+    }
+
+    [HttpGet("barcode-settings")]
+    public async Task<ActionResult<BarcodeSettingsDto>> GetBarcodeSettings(CancellationToken ct)
+    {
+        return Ok(await barcodeService.GetSettingsAsync(ct));
+    }
+
+    [HttpPut("barcode-settings")]
+    [Authorize(Policy = "CatalogManagers")]
+    public async Task<ActionResult<BarcodeSettingsDto>> UpdateBarcodeSettings(UpdateBarcodeSettingsRequest request, CancellationToken ct)
+    {
+        return Ok(await barcodeService.UpdateSettingsAsync(request, ct));
     }
 
     [HttpGet("{id:guid}")]

@@ -125,6 +125,42 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                     b.ToTable("UserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("RetailCommerce.Domain.Catalog.BarcodeSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CompanyName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IncludeCompanyName")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IncludePrice")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal>("LabelHeightInches")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<decimal>("LabelWidthInches")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("BarcodeSettings", (string)null);
+                });
+
             modelBuilder.Entity("RetailCommerce.Domain.Catalog.Product", b =>
                 {
                     b.Property<Guid>("Id")
@@ -302,14 +338,14 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<bool>("IsCurrent")
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPrimary")
                         .HasColumnType("boolean");
 
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("SupersededAtUtc")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -319,7 +355,7 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.HasIndex("ProductId", "IsCurrent");
+                    b.HasIndex("ProductId", "IsPrimary");
 
                     b.ToTable("ProductBarcodes", (string)null);
                 });

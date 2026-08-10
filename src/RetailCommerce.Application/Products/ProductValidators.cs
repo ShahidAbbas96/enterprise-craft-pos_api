@@ -32,3 +32,21 @@ public class UpsertProductRequestValidator : AbstractValidator<UpsertProductRequ
             .When(x => x.InitialStockQuantity is > 0);
     }
 }
+
+public class UpdateBarcodeSettingsRequestValidator : AbstractValidator<UpdateBarcodeSettingsRequest>
+{
+    public UpdateBarcodeSettingsRequestValidator()
+    {
+        RuleFor(x => x.CompanyName).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.LabelWidthInches).GreaterThan(0).LessThanOrEqualTo(20);
+        RuleFor(x => x.LabelHeightInches).GreaterThan(0).LessThanOrEqualTo(20);
+    }
+}
+
+public class AddProductBarcodeRequestValidator : AbstractValidator<AddProductBarcodeRequest>
+{
+    public AddProductBarcodeRequestValidator()
+    {
+        RuleFor(x => x.Code).NotEmpty().MaximumLength(60);
+    }
+}

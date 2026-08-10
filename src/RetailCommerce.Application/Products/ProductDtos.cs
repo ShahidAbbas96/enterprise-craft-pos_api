@@ -50,10 +50,13 @@ public record ProductDto(
 
 public record ProductAttributeValueInput(Guid ProductAttributeTypeId, Guid ProductAttributeOptionId);
 
-/// <summary>A product's barcode is a computed, immutable identifier (Sku-Size-Color) — never
-/// accepted as free-text input. This history row shows one assignment; SupersededAtUtc is set
-/// when a later attribute change caused a new current barcode to be assigned.</summary>
-public record ProductBarcodeDto(Guid Id, string Code, bool IsCurrent, DateTimeOffset CreatedAtUtc, DateTimeOffset? SupersededAtUtc);
+/// <summary>One barcode assigned to a product — a product can have several active at once (an
+/// auto-computed Sku-Size-Color one plus any manually-added alternates). IsPrimary marks the one
+/// used by default on reports/labels/search; IsActive false means it's been retired (kept for
+/// record, no longer offered as current, though the row itself is never deleted).</summary>
+public record ProductBarcodeDto(Guid Id, string Code, bool IsPrimary, bool IsActive, DateTimeOffset CreatedAtUtc);
+
+public record AddProductBarcodeRequest(string Code);
 
 public record UpsertProductRequest(
     string? ItemCode,
