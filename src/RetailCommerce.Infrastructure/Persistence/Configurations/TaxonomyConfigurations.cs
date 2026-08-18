@@ -89,6 +89,7 @@ public class ProductAttributeTypeConfiguration : IEntityTypeConfiguration<Produc
         b.ToTable("ProductAttributeTypes");
         b.Property(x => x.Code).HasMaxLength(50).IsRequired();
         b.Property(x => x.Name).HasMaxLength(100).IsRequired();
+        b.Property(x => x.ShowOnPurchaseOrder).HasDefaultValue(true);
         b.HasIndex(x => new { x.DepartmentId, x.Code }).IsUnique();
         b.HasOne(x => x.Department)
             .WithMany(d => d.AttributeTypes)

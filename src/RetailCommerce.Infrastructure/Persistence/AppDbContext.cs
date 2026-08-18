@@ -32,6 +32,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, 
     public DbSet<ProductAttributeValue> ProductAttributeValues => Set<ProductAttributeValue>();
     public DbSet<ProductBarcode> ProductBarcodes => Set<ProductBarcode>();
     public DbSet<BarcodeSettings> BarcodeSettings => Set<BarcodeSettings>();
+    public DbSet<ProductFieldConfig> ProductFieldConfigs => Set<ProductFieldConfig>();
+    public DbSet<CurrencySettings> CurrencySettings => Set<CurrencySettings>();
+    public DbSet<PosSettings> PosSettings => Set<PosSettings>();
 
     // Parties
     public DbSet<Customer> Customers => Set<Customer>();
@@ -60,6 +63,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, 
     // Purchasing
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
     public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
+    public DbSet<PurchaseOrderSettings> PurchaseOrderSettings => Set<PurchaseOrderSettings>();
     public DbSet<Transfer> Transfers => Set<Transfer>();
     public DbSet<TransferLine> TransferLines => Set<TransferLine>();
 

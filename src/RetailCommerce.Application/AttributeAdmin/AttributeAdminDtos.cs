@@ -6,11 +6,12 @@ public record AttributeTypeItemDto(
     string Name,
     int DisplayOrder,
     bool IsRequired,
+    bool ShowOnPurchaseOrder,
     Guid? DepartmentId,
     string? DepartmentName,
     int OptionCount);
 
-public record UpsertAttributeTypeRequest(string Code, string Name, int DisplayOrder, bool IsRequired, Guid? DepartmentId);
+public record UpsertAttributeTypeRequest(string Code, string Name, int DisplayOrder, bool IsRequired, bool ShowOnPurchaseOrder, Guid? DepartmentId);
 
 public record AttributeOptionItemDto(Guid Id, Guid ProductAttributeTypeId, string Code, string Name, bool IsActive, string? BarcodeCode);
 

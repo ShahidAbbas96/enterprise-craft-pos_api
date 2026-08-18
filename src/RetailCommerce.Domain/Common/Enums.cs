@@ -81,10 +81,22 @@ public enum DiscountValueType
 {
     Percentage = 0,
     FixedAmount = 1,
+    /// <summary>Value is the exact final per-unit selling price (e.g. 1700), not an amount or
+    /// percent subtracted from the product's normal price. Only meaningful for a Product-targeted
+    /// discount — a department-wide or whole-cart discount can't have one fixed final price since
+    /// every product in it starts at a different price.</summary>
+    FixedPrice = 2,
 }
 
 public enum ShiftStatus
 {
     Open = 0,
     Closed = 1,
+}
+
+public enum ProductFieldState
+{
+    Required = 0,
+    Optional = 1,
+    Hidden = 2,
 }

@@ -20,7 +20,7 @@ public class DiscountService(AppDbContext db) : IDiscountService
     public async Task<DiscountDto> CreateAsync(UpsertDiscountRequest request, CancellationToken ct = default)
     {
         var type = ParseType(request.Type);
-        await ValidateTargetsAsync(request.DepartmentId, request.ProductId, ct);
+        await ValidateTargetsAsync(request.DepartmentId, request.ProductId, type, request.Value, ct);
 
         var entity = new Discount
         {
@@ -40,7 +40,7 @@ public class DiscountService(AppDbContext db) : IDiscountService
     {
         var entity = await db.Discounts.FirstOrDefaultAsync(d => d.Id == id, ct) ?? throw new NotFoundException("Discount", id);
         var type = ParseType(request.Type);
-        await ValidateTargetsAsync(request.DepartmentId, request.ProductId, ct);
+        await ValidateTargetsAsync(request.DepartmentId, request.ProductId, type, request.Value, ct);
 
         entity.Name = request.Name.Trim();
         entity.Type = type;
@@ -67,15 +67,21 @@ public class DiscountService(AppDbContext db) : IDiscountService
         return ToDto(entity);
     }
 
-    private async Task ValidateTargetsAsync(Guid? departmentId, Guid? productId, CancellationToken ct)
+    private async Task ValidateTargetsAsync(Guid? departmentId, Guid? productId, DiscountValueType type, decimal value, CancellationToken ct)
     {
         if (departmentId is { } deptId && !await db.Departments.AnyAsync(d => d.Id == deptId, ct))
         {
             throw new NotFoundException("Department", deptId);
         }
-        if (productId is { } prodId && !await db.Products.AnyAsync(p => p.Id == prodId, ct))
+        if (productId is { } prodId)
         {
-            throw new NotFoundException("Product", prodId);
+            var product = await db.Products.FirstOrDefaultAsync(p => p.Id == prodId, ct) ?? throw new NotFoundException("Product", prodId);
+            // FixedPrice's Value is the target final price, so it only makes sense below the
+            // product's current price — otherwise it's not a discount at all.
+            if (type == DiscountValueType.FixedPrice && value >= product.Price)
+            {
+                throw new ConflictException($"Discount price ({value}) must be less than {product.Name}'s current price ({product.Price}).");
+            }
         }
     }
 

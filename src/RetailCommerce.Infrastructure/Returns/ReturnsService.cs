@@ -87,11 +87,13 @@ public class ReturnsService(AppDbContext db, IDocumentNumberService documentNumb
                 throw new ConflictException($"Cannot return {lineInput.Quantity} of {orderLine.ProductName} — only {returnable} returnable.");
             }
 
+            // Mirrors SalesService.CreateSaleAsync's pricing exactly: POS sales never add tax on
+            // top of the price (order.TaxAmount is always 0), so the refund must stop at the
+            // discounted subtotal too — adding TaxRatePercent here would refund tax that was
+            // never actually collected from the customer.
             var lineSubtotal = orderLine.UnitPrice * lineInput.Quantity;
             var lineDiscount = Math.Round(lineSubtotal * orderLine.DiscountPercent / 100m, 2);
-            var lineTaxable = lineSubtotal - lineDiscount;
-            var lineTax = Math.Round(lineTaxable * orderLine.TaxRatePercent / 100m, 2);
-            var lineRefund = lineTaxable + lineTax;
+            var lineRefund = lineSubtotal - lineDiscount;
             total += lineRefund;
 
             returnOrder.Lines.Add(new ReturnLine

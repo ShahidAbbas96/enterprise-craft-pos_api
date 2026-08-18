@@ -12,4 +12,8 @@ public interface IPurchaseOrderService
     /// <summary>The only action that increases inventory — mirrors receive_purchase_order
     /// from the reference prototype's SQL, reimplemented as a C# transaction.</summary>
     Task<PurchaseOrderDto> ReceiveAsync(Guid id, Guid? userId, CancellationToken ct = default);
+
+    Task<PurchaseOrderDisplaySettingsDto> GetDisplaySettingsAsync(CancellationToken ct = default);
+
+    Task<PurchaseOrderDisplaySettingsDto> UpdateDisplaySettingsAsync(UpdatePurchaseOrderDisplaySettingsRequest request, CancellationToken ct = default);
 }

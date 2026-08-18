@@ -59,8 +59,7 @@ public class PurchaseOrderService(AppDbContext db, IDocumentNumberService docume
     public async Task<PurchaseOrderDto> CreateAsync(CreatePurchaseOrderRequest request, Guid? userId, CancellationToken ct = default)
     {
         if (!await db.Suppliers.AnyAsync(s => s.Id == request.SupplierId, ct)) throw new NotFoundException("Supplier", request.SupplierId);
-        var poWarehouse = await db.Warehouses.Include(w => w.Store).FirstOrDefaultAsync(w => w.Id == request.WarehouseId, ct)
-                           ?? throw new NotFoundException("Warehouse", request.WarehouseId);
+        if (!await db.Warehouses.AnyAsync(w => w.Id == request.WarehouseId, ct)) throw new NotFoundException("Warehouse", request.WarehouseId);
 
         var productIds = request.Lines.Select(l => l.ProductId).Distinct().ToList();
         var products = await db.Products.Where(p => productIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, ct);
@@ -69,8 +68,7 @@ public class PurchaseOrderService(AppDbContext db, IDocumentNumberService docume
             if (!products.ContainsKey(line.ProductId)) throw new NotFoundException("Product", line.ProductId);
         }
 
-        var storeSegment = poWarehouse.Store?.Code ?? poWarehouse.Code;
-        var poNumber = await documentNumbers.NextAsync(DocumentType.PurchaseOrder, storeSegment, ct);
+        var poNumber = await documentNumbers.NextAsync(DocumentType.PurchaseOrder, ct);
 
         var order = new PurchaseOrder
         {
@@ -182,6 +180,31 @@ public class PurchaseOrderService(AppDbContext db, IDocumentNumberService docume
         await transaction.CommitAsync(ct);
 
         return await GetAsync(id, ct);
+    }
+
+    public async Task<PurchaseOrderDisplaySettingsDto> GetDisplaySettingsAsync(CancellationToken ct = default)
+    {
+        var entity = await db.PurchaseOrderSettings.FirstOrDefaultAsync(ct);
+        if (entity is null)
+        {
+            entity = new Domain.Purchasing.PurchaseOrderSettings();
+            db.PurchaseOrderSettings.Add(entity);
+            await db.SaveChangesAsync(ct);
+        }
+        return new PurchaseOrderDisplaySettingsDto(entity.ShowProductAttributes);
+    }
+
+    public async Task<PurchaseOrderDisplaySettingsDto> UpdateDisplaySettingsAsync(UpdatePurchaseOrderDisplaySettingsRequest request, CancellationToken ct = default)
+    {
+        var entity = await db.PurchaseOrderSettings.FirstOrDefaultAsync(ct);
+        if (entity is null)
+        {
+            entity = new Domain.Purchasing.PurchaseOrderSettings();
+            db.PurchaseOrderSettings.Add(entity);
+        }
+        entity.ShowProductAttributes = request.ShowProductAttributes;
+        await db.SaveChangesAsync(ct);
+        return new PurchaseOrderDisplaySettingsDto(entity.ShowProductAttributes);
     }
 
     private IQueryable<PurchaseOrder> Query() =>

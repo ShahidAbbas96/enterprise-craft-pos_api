@@ -152,8 +152,8 @@ public class ReportsService(AppDbContext db) : IReportsService
         var storeName = order.Warehouse.Store?.Name ?? order.Warehouse.Name;
 
         return new SalesDetailLineDto(
-            Department: product.Department.Name,
-            Category: product.Category.Name,
+            Department: product.Department?.Name ?? "",
+            Category: product.Category?.Name ?? "",
             SubCategory: product.Subcategory?.Name ?? "",
             Family: null,
             Range: null,
@@ -244,7 +244,7 @@ public class ReportsService(AppDbContext db) : IReportsService
             ItemId: product.ItemCode ?? product.Sku,
             ItemName: product.Name,
             SearchName: $"{product.Sku} {product.ItemCode}".Trim(),
-            LineItem: product.Category.Name,
+            LineItem: product.Category?.Name ?? "",
             Color: color,
             Size: size,
             Store: storeName,

@@ -60,6 +60,19 @@ public class ProductsController(IProductService productService, IBarcodeService 
         return Ok(await barcodeService.UpdateSettingsAsync(request, ct));
     }
 
+    [HttpGet("field-config")]
+    public async Task<ActionResult<IReadOnlyList<ProductFieldConfigDto>>> GetFieldConfig(CancellationToken ct)
+    {
+        return Ok(await productService.GetFieldConfigAsync(ct));
+    }
+
+    [HttpPut("field-config")]
+    [Authorize(Policy = "CatalogManagers")]
+    public async Task<ActionResult<IReadOnlyList<ProductFieldConfigDto>>> UpdateFieldConfig(IReadOnlyList<UpdateProductFieldConfigRequest> request, CancellationToken ct)
+    {
+        return Ok(await productService.UpdateFieldConfigAsync(request, ct));
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ProductDto>> Get(Guid id, CancellationToken ct)
     {

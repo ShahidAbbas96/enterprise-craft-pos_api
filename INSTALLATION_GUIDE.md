@@ -51,27 +51,54 @@ server (Properties → Connection tab). It's `5432` unless you changed it during
 
 ## Step 3 — Configure the app
 
-Right-click the **Start** button → **Windows PowerShell (Admin)** (or search "PowerShell",
-right-click, "Run as administrator").
+Everything the app needs — which port to listen on, the database password, and the security
+key — goes in one small JSON file next to the exe, **not** environment variables. This matters
+specifically for Step 4's Windows Service: `sc.exe`'s parent process only reads machine-level
+environment variables once, at boot, so a variable set *after* that (as an `[Environment]::
+SetEnvironmentVariable(..., "Machine")` command run on an already-running machine would be)
+never reaches a service — even a freshly-created one, and even a plain `.exe` run directly from
+a new terminal — until the next reboot. Until then, the app silently falls back to defaults
+(an empty database connection, and port 5000 instead of 5012), which is exactly what causes
+"network error" on every screen and `ERR_CONNECTION_REFUSED` in the browser. A file the app
+reads directly has no such timing gotcha, so this guide doesn't use environment variables at all.
 
-Paste each line below one at a time, pressing Enter after each. **Replace the placeholders**
-(shown in `<angle brackets>`) with your real values before pasting:
+Generate a random security key first — paste this in PowerShell and copy the value it prints:
 
 ```powershell
-[Environment]::SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Production", "Machine")
-[Environment]::SetEnvironmentVariable("ASPNETCORE_URLS", "http://0.0.0.0:5012", "Machine")
-[Environment]::SetEnvironmentVariable("ConnectionStrings__Default", "Host=localhost;Port=<your-postgres-port>;Database=retailcommerce;Username=retailcommerce_app;Password=<the-password-from-step-2>", "Machine")
+[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
 ```
 
-Then generate and set a random security key (paste this whole block as one command):
+Create `C:\RetailCommerce\appsettings.Production.json` (same folder as `RetailCommerce.Api.exe`)
+with this content, filling in your real Postgres port/password from Step 2 and the key you just
+generated:
+
+```json
+{
+  "Urls": "http://0.0.0.0:5012",
+  "ConnectionStrings": {
+    "Default": "Host=localhost;Port=<your-postgres-port>;Database=retailcommerce;Username=retailcommerce_app;Password=<the-password-from-step-2>"
+  },
+  "Jwt": {
+    "Key": "<the-key-you-just-generated>"
+  }
+}
+```
+
+Save it as plain text (Notepad works fine — just make sure it's not saved as `.json.txt`; in
+Notepad's Save dialog, set "Save as type" to **All Files** and type the filename with `.json` on
+the end). ASP.NET Core loads this automatically on startup — the app defaults to the
+`Production` environment whenever `ASPNETCORE_ENVIRONMENT` isn't set, which is exactly the case
+here, so `appsettings.Production.json` is picked up with no environment variable needed at all.
+
+If you already ran the environment-variable commands from an earlier version of this guide,
+clear them so they can't reappear and silently override this file after a future reboot:
 
 ```powershell
-$key = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
-[Environment]::SetEnvironmentVariable("Jwt__Key", $key, "Machine")
+[Environment]::SetEnvironmentVariable("ASPNETCORE_URLS", $null, "Machine")
+[Environment]::SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", $null, "Machine")
+[Environment]::SetEnvironmentVariable("ConnectionStrings__Default", $null, "Machine")
+[Environment]::SetEnvironmentVariable("Jwt__Key", $null, "Machine")
 ```
-
-**Close this PowerShell window** now — this matters. Environment variables only take effect in
-windows opened *after* they're set.
 
 ---
 
@@ -87,7 +114,10 @@ sc.exe start RetailCommercePos
 (The space right after each `=` matters — don't remove it.)
 
 This registers the app to start automatically every time the computer turns on, running quietly
-in the background — no window, nothing to keep open.
+in the background — no window, nothing to keep open. `start= auto` is what makes this happen: it
+tells Windows to launch the service on every boot, with no manual action needed — including after
+a shutdown, restart, or power outage. You never need to start it by hand; just turn the computer
+on and it's running within a few seconds.
 
 Check it's running:
 
@@ -148,19 +178,37 @@ sc.exe query RetailCommercePos
 
 ## Troubleshooting
 
-- **Service won't start** — double-check Step 3's environment variables were set *before*
-  installing the service (Step 4), and in a PowerShell window opened after Step 3. If unsure,
-  redo Step 3, then remove and recreate the service:
+- **Service won't start** — check `C:\RetailCommerce\logs\app-<date>.log` for the actual reason
+  (the app logs a `[Critical]` entry with the full exception if startup fails). The most common
+  cause: `System.ArgumentException: Host can't be null` means `appsettings.Production.json`
+  (Step 3b) is missing, misnamed (e.g. saved as `.json.txt`), or has a typo in `ConnectionStrings`
+  — re-check it exists right next to `RetailCommerce.Api.exe` and is valid JSON. Also double-check
+  Step 3a's environment variables were set in a PowerShell window opened *after* they were set
+  (`ASPNETCORE_URLS`/`ASPNETCORE_ENVIRONMENT` only — the database password and security key live
+  in the JSON file now, not environment variables, precisely to avoid this class of problem). If
+  you change the JSON file, just restart the service — no need to delete and recreate it:
   ```powershell
   sc.exe stop RetailCommercePos
-  sc.exe delete RetailCommercePos
+  sc.exe start RetailCommercePos
   ```
-  then repeat Step 4.
+- **"The service did not respond to the start or control request in a timely fashion"** (Win32
+  error 1053) — this means the build predates the app's Windows Service integration: older builds
+  ran as a plain console app under `sc.exe`, so the process actually started fine (check
+  `logs\app-<date>.log` next to the exe — you'll usually see it did) but never told Windows'
+  Service Control Manager it was alive, so `sc.exe start`/`Start-Service` always timed out waiting
+  for that acknowledgement. Two things had to be fixed in the app itself, not the service
+  registration: (1) calling `UseWindowsService()` so the app performs the SCM handshake at all,
+  and (2) starting that handshake *before* running database migrations, since migrations can take
+  a few seconds and nothing acknowledges SCM until the app actually starts serving requests — get
+  a newer build, stop the service, replace the files in `C:\RetailCommerce` with it, then start it
+  again; no need to delete and recreate the service, the same `RetailCommercePos` registration
+  still works.
 - **Blank/white page at `http://localhost:5012`** — the `wwwroot` folder is missing or in the
   wrong place; re-check Step 1 (`RetailCommerce.Api.exe` and `wwwroot` must be in the same
   folder).
 - **Can't log in / errors after logging in** — usually a wrong database password or port in
-  Step 3's `ConnectionStrings__Default`. Re-verify against what you set in Step 2's pgAdmin.
+  `appsettings.Production.json`'s `ConnectionStrings:Default` (Step 3b). Re-verify against what
+  you set in Step 2's pgAdmin.
 - **Can't reach it from other computers in the shop** — Windows Firewall may be blocking it.
   Open **Windows Defender Firewall with Advanced Security** → **Inbound Rules** → **New Rule…**
   → **Port** → TCP → Specific local port `5012` → **Allow the connection** → apply to all

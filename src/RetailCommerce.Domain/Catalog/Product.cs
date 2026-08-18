@@ -17,17 +17,20 @@ public class Product : BaseEntity
     public string? Description { get; set; }
     public string? ImageUrl { get; set; }
 
-    public Guid DepartmentId { get; set; }
-    public Department Department { get; set; } = default!;
+    /// <summary>Nullable so this field can be turned Optional/Hidden via ProductFieldConfig
+    /// (Settings → Product Fields) without a further schema change — SKU generation and any
+    /// department-scoped logic elsewhere already treat a missing department as a valid state.</summary>
+    public Guid? DepartmentId { get; set; }
+    public Department? Department { get; set; }
 
-    public Guid GenderId { get; set; }
-    public Gender Gender { get; set; } = default!;
+    public Guid? GenderId { get; set; }
+    public Gender? Gender { get; set; }
 
-    public Guid EventTypeId { get; set; }
-    public EventType EventType { get; set; } = default!;
+    public Guid? EventTypeId { get; set; }
+    public EventType? EventType { get; set; }
 
-    public Guid CategoryId { get; set; }
-    public Category Category { get; set; } = default!;
+    public Guid? CategoryId { get; set; }
+    public Category? Category { get; set; }
 
     public Guid? SubcategoryId { get; set; }
     public Subcategory? Subcategory { get; set; }

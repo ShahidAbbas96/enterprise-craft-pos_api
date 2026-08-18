@@ -16,6 +16,7 @@ out/
 
 # EF Core / local secrets
 appsettings.*.local.json
+appsettings.Production.json
 *.pfx
 
 # Logs

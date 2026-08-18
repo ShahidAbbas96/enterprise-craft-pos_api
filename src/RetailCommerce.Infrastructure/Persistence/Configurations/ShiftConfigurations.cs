@@ -20,7 +20,7 @@ public class ShiftConfiguration : IEntityTypeConfiguration<Shift>
     public void Configure(EntityTypeBuilder<Shift> b)
     {
         b.ToTable("Shifts");
-        b.Property(x => x.ShiftNumber).HasMaxLength(30).IsRequired();
+        b.Property(x => x.ShiftNumber).HasMaxLength(100).IsRequired();
         b.HasIndex(x => x.ShiftNumber).IsUnique();
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
         b.Property(x => x.TotalSales).HasPrecision(18, 2);

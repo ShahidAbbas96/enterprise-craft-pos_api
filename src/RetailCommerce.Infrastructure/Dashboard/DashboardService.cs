@@ -102,8 +102,8 @@ public class DashboardService(AppDbContext db) : IDashboardService
         var total = groups.Sum(g => g.Revenue);
         return groups
             .Select(g => new DepartmentMixDto(
-                g.DepartmentId,
-                departmentNames.GetValueOrDefault(g.DepartmentId, "Unknown"),
+                g.DepartmentId ?? Guid.Empty,
+                g.DepartmentId is { } id ? departmentNames.GetValueOrDefault(id, "Unknown") : "Unassigned",
                 g.Revenue,
                 total > 0 ? Math.Round(g.Revenue / total * 100, 1) : 0))
             .OrderByDescending(d => d.Revenue)
@@ -172,5 +172,5 @@ public class DashboardService(AppDbContext db) : IDashboardService
         _ => "info",
     };
 
-    private record ProductCostInfo(Guid Id, decimal Cost, Guid DepartmentId);
+    private record ProductCostInfo(Guid Id, decimal Cost, Guid? DepartmentId);
 }

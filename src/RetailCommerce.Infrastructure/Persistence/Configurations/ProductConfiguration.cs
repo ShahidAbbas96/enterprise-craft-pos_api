@@ -79,6 +79,17 @@ public class ProductBarcodeConfiguration : IEntityTypeConfiguration<ProductBarco
     }
 }
 
+public class ProductFieldConfigConfiguration : IEntityTypeConfiguration<ProductFieldConfig>
+{
+    public void Configure(EntityTypeBuilder<ProductFieldConfig> b)
+    {
+        b.ToTable("ProductFieldConfigs");
+        b.Property(x => x.FieldKey).HasMaxLength(50).IsRequired();
+        b.HasIndex(x => x.FieldKey).IsUnique();
+        b.Property(x => x.State).HasConversion<string>().HasMaxLength(20);
+    }
+}
+
 public class BarcodeSettingsConfiguration : IEntityTypeConfiguration<BarcodeSettings>
 {
     public void Configure(EntityTypeBuilder<BarcodeSettings> b)
@@ -87,5 +98,28 @@ public class BarcodeSettingsConfiguration : IEntityTypeConfiguration<BarcodeSett
         b.Property(x => x.CompanyName).HasMaxLength(200).IsRequired();
         b.Property(x => x.LabelWidthInches).HasPrecision(5, 2);
         b.Property(x => x.LabelHeightInches).HasPrecision(5, 2);
+    }
+}
+
+public class CurrencySettingsConfiguration : IEntityTypeConfiguration<CurrencySettings>
+{
+    public void Configure(EntityTypeBuilder<CurrencySettings> b)
+    {
+        b.ToTable("CurrencySettings");
+        b.Property(x => x.Symbol).HasMaxLength(10).IsRequired();
+    }
+}
+
+public class PosSettingsConfiguration : IEntityTypeConfiguration<PosSettings>
+{
+    public void Configure(EntityTypeBuilder<PosSettings> b)
+    {
+        b.ToTable("PosSettings");
+        b.Property(x => x.ViewMode).HasMaxLength(20).IsRequired();
+        // Explicit SQL-level default (not just the C# property initializer) so any row already in
+        // the table before this column existed — every existing deployment's singleton row — gets
+        // a sane value from the migration itself instead of silently defaulting to 0.
+        b.Property(x => x.ReturnPolicyDays).HasDefaultValue(15);
+        b.Property(x => x.VisibleProductFields).HasMaxLength(2000).HasDefaultValue("sku,barcode,price,totalStock");
     }
 }

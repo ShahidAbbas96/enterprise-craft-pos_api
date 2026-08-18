@@ -161,6 +161,65 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                     b.ToTable("BarcodeSettings", (string)null);
                 });
 
+            modelBuilder.Entity("RetailCommerce.Domain.Catalog.CurrencySettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DecimalPlaces")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Symbol")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CurrencySettings", (string)null);
+                });
+
+            modelBuilder.Entity("RetailCommerce.Domain.Catalog.PosSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ReturnPolicyDays")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(15);
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ViewMode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("VisibleProductFields")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasDefaultValue("sku,barcode,price,totalStock");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PosSettings", (string)null);
+                });
+
             modelBuilder.Entity("RetailCommerce.Domain.Catalog.Product", b =>
                 {
                     b.Property<Guid>("Id")
@@ -171,7 +230,7 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<Guid>("CategoryId")
+                    b.Property<Guid?>("CategoryId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("CollectionId")
@@ -184,7 +243,7 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("DepartmentId")
+                    b.Property<Guid?>("DepartmentId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Description")
@@ -194,10 +253,10 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                         .HasPrecision(5, 2)
                         .HasColumnType("numeric(5,2)");
 
-                    b.Property<Guid>("EventTypeId")
+                    b.Property<Guid?>("EventTypeId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("GenderId")
+                    b.Property<Guid?>("GenderId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("ImageUrl")
@@ -358,6 +417,36 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                     b.HasIndex("ProductId", "IsPrimary");
 
                     b.ToTable("ProductBarcodes", (string)null);
+                });
+
+            modelBuilder.Entity("RetailCommerce.Domain.Catalog.ProductFieldConfig", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FieldKey")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FieldKey")
+                        .IsUnique();
+
+                    b.ToTable("ProductFieldConfigs", (string)null);
                 });
 
             modelBuilder.Entity("RetailCommerce.Domain.Inventory.InventoryBalance", b =>
@@ -735,8 +824,8 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("PoNumber")
                         .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Reference")
                         .HasMaxLength(100)
@@ -831,6 +920,26 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                     b.ToTable("PurchaseOrderLines", (string)null);
                 });
 
+            modelBuilder.Entity("RetailCommerce.Domain.Purchasing.PurchaseOrderSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("ShowProductAttributes")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PurchaseOrderSettings", (string)null);
+                });
+
             modelBuilder.Entity("RetailCommerce.Domain.Purchasing.Transfer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -867,8 +976,8 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("TransferNumber")
                         .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTimeOffset?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -1001,8 +1110,8 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("OrderNumber")
                         .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("PaymentMethod")
                         .IsRequired()
@@ -1155,8 +1264,8 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("ReturnNumber")
                         .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<decimal>("Total")
                         .HasPrecision(18, 2)
@@ -1328,8 +1437,8 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("ShiftNumber")
                         .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1601,6 +1710,11 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<bool>("ShowOnPurchaseOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<DateTimeOffset?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -1853,8 +1967,7 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                     b.HasOne("RetailCommerce.Domain.Taxonomy.Category", "Category")
                         .WithMany()
                         .HasForeignKey("CategoryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("RetailCommerce.Domain.Taxonomy.Collection", "Collection")
                         .WithMany()
@@ -1864,20 +1977,17 @@ namespace RetailCommerce.Infrastructure.Persistence.Migrations
                     b.HasOne("RetailCommerce.Domain.Taxonomy.Department", "Department")
                         .WithMany()
                         .HasForeignKey("DepartmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("RetailCommerce.Domain.Taxonomy.EventType", "EventType")
                         .WithMany()
                         .HasForeignKey("EventTypeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("RetailCommerce.Domain.Taxonomy.Gender", "Gender")
                         .WithMany()
                         .HasForeignKey("GenderId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("RetailCommerce.Domain.Taxonomy.Subcategory", "Subcategory")
                         .WithMany()

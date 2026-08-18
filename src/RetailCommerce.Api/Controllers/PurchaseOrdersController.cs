@@ -36,6 +36,15 @@ public class PurchaseOrdersController(IPurchaseOrderService purchaseOrderService
     public async Task<ActionResult<PurchaseOrderDto>> Receive(Guid id, CancellationToken ct) =>
         Ok(await purchaseOrderService.ReceiveAsync(id, CurrentUserId(), ct));
 
+    [HttpGet("display-settings")]
+    public async Task<ActionResult<PurchaseOrderDisplaySettingsDto>> GetDisplaySettings(CancellationToken ct) =>
+        Ok(await purchaseOrderService.GetDisplaySettingsAsync(ct));
+
+    [HttpPut("display-settings")]
+    [Authorize(Policy = "CatalogManagers")]
+    public async Task<ActionResult<PurchaseOrderDisplaySettingsDto>> UpdateDisplaySettings(UpdatePurchaseOrderDisplaySettingsRequest request, CancellationToken ct) =>
+        Ok(await purchaseOrderService.UpdateDisplaySettingsAsync(request, ct));
+
     private Guid? CurrentUserId()
     {
         var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);

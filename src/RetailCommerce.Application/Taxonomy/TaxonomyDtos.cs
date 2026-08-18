@@ -16,6 +16,7 @@ public record AttributeTypeDto(
     string Name,
     int DisplayOrder,
     bool IsRequired,
+    bool ShowOnPurchaseOrder,
     Guid? DepartmentId,
     IReadOnlyList<AttributeOptionDto> Options);
 

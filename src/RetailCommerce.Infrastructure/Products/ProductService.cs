@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using RetailCommerce.Application.Common;
 using RetailCommerce.Application.Products;
 using RetailCommerce.Domain.Catalog;
@@ -20,6 +21,8 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
             .Include(p => p.Subcategory)
             .Include(p => p.Collection)
             .Include(p => p.Supplier)
+            .Include(p => p.AttributeValues).ThenInclude(v => v.ProductAttributeType)
+            .Include(p => p.AttributeValues).ThenInclude(v => v.ProductAttributeOption)
             .AsQueryable();
 
         if (query.DepartmentId is { } dep) products = products.Where(p => p.DepartmentId == dep);
@@ -58,7 +61,7 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
             .Select(g => new { ProductId = g.Key, Total = g.Sum(x => x.Quantity) })
             .ToDictionaryAsync(x => x.ProductId, x => x.Total, ct);
 
-        var items = page.Select(p => ToDto(p, stockByProduct.GetValueOrDefault(p.Id), attributes: [])).ToList();
+        var items = page.Select(p => ToDto(p, stockByProduct.GetValueOrDefault(p.Id), MapAttributes(p))).ToList();
 
         return new PagedResult<ProductDto>
         {
@@ -78,11 +81,23 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
 
     public async Task<ProductDto> CreateAsync(UpsertProductRequest request, CancellationToken ct = default)
     {
-        await EnsureUniqueAsync(request.Sku, existingId: null, ct);
+        await ValidateFieldConfigAsync(request, ct);
         await EnsureTaxonomyReferencesExistAsync(request, ct);
 
         var product = new Product { Id = Guid.NewGuid() };
         MapRequestToEntity(request, product);
+
+        // Sku is always generated unless the caller explicitly supplies one (Import trusts the
+        // file's value verbatim; the Product form never sends one, so this always generates here).
+        product.Sku = string.IsNullOrWhiteSpace(request.Sku)
+            ? await GenerateSkuAsync(request, ct)
+            : request.Sku.Trim();
+        await EnsureSkuUniqueAsync(product.Sku, existingId: null, ct);
+
+        product.ItemCode = string.IsNullOrWhiteSpace(request.ItemCode)
+            ? await GenerateItemCodeAsync(product.Name, ct)
+            : request.ItemCode.Trim();
+
         db.Products.Add(product);
 
         await ApplyAttributeValuesAsync(product, request.Attributes, ct);
@@ -109,10 +124,28 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
     public async Task<ProductDto> UpdateAsync(Guid id, UpsertProductRequest request, CancellationToken ct = default)
     {
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, ct) ?? throw new NotFoundException("Product", id);
-        await EnsureUniqueAsync(request.Sku, existingId: id, ct);
+        await ValidateFieldConfigAsync(request, ct);
         await EnsureTaxonomyReferencesExistAsync(request, ct);
 
         MapRequestToEntity(request, product);
+
+        // Sku/ItemCode are read-only in the Product form (it never sends them, so these branches
+        // simply preserve whatever the product already has) — only an explicit value in the
+        // request (e.g. Import correcting legacy data) overwrites them.
+        if (!string.IsNullOrWhiteSpace(request.Sku))
+        {
+            var trimmedSku = request.Sku.Trim();
+            if (!string.Equals(trimmedSku, product.Sku, StringComparison.Ordinal))
+            {
+                await EnsureSkuUniqueAsync(trimmedSku, existingId: id, ct);
+                product.Sku = trimmedSku;
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(request.ItemCode))
+        {
+            product.ItemCode = request.ItemCode.Trim();
+        }
+
         await ApplyAttributeValuesAsync(product, request.Attributes, ct);
 
         await db.SaveChangesAsync(ct);
@@ -125,6 +158,44 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
         var product = await db.Products.FirstOrDefaultAsync(p => p.Id == id, ct) ?? throw new NotFoundException("Product", id);
         db.Products.Remove(product);
         await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<ProductFieldConfigDto>> GetFieldConfigAsync(CancellationToken ct = default)
+    {
+        var states = await GetFieldStatesAsync(ct);
+        return ProductFieldCatalog.Fields
+            .Select(f => new ProductFieldConfigDto(f.Key, f.DisplayName, states[f.Key].ToString()))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<ProductFieldConfigDto>> UpdateFieldConfigAsync(IReadOnlyList<UpdateProductFieldConfigRequest> requests, CancellationToken ct = default)
+    {
+        var knownKeys = ProductFieldCatalog.Fields.Select(f => f.Key).ToHashSet();
+        var existing = await db.ProductFieldConfigs.ToDictionaryAsync(c => c.FieldKey, ct);
+
+        foreach (var req in requests)
+        {
+            if (!knownKeys.Contains(req.FieldKey))
+            {
+                throw new NotFoundException("ProductFieldConfig", req.FieldKey);
+            }
+            if (!Enum.TryParse<ProductFieldState>(req.State, ignoreCase: true, out var state))
+            {
+                throw new ConflictException($"'{req.State}' is not a valid field state. Use Required, Optional, or Hidden.");
+            }
+
+            if (existing.TryGetValue(req.FieldKey, out var row))
+            {
+                row.State = state;
+            }
+            else
+            {
+                db.ProductFieldConfigs.Add(new ProductFieldConfig { FieldKey = req.FieldKey, State = state });
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
+        return await GetFieldConfigAsync(ct);
     }
 
     // ---- helpers ----
@@ -151,10 +222,10 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
 
     private static ProductDto ToDto(Product p, int totalStock, IReadOnlyList<ProductAttributeValueDto> attributes) => new(
         p.Id, p.ItemCode, p.Sku, p.Barcode, p.Name, p.Description, p.ImageUrl,
-        p.DepartmentId, p.Department.Name,
-        p.GenderId, p.Gender.Name,
-        p.EventTypeId, p.EventType.Name,
-        p.CategoryId, p.Category.Name,
+        p.DepartmentId, p.Department?.Name,
+        p.GenderId, p.Gender?.Name,
+        p.EventTypeId, p.EventType?.Name,
+        p.CategoryId, p.Category?.Name,
         p.SubcategoryId, p.Subcategory?.Name,
         p.CollectionId, p.Collection?.DisplayCode,
         p.Year,
@@ -165,8 +236,8 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
 
     private static void MapRequestToEntity(UpsertProductRequest r, Product p)
     {
-        p.ItemCode = string.IsNullOrWhiteSpace(r.ItemCode) ? null : r.ItemCode.Trim();
-        p.Sku = r.Sku.Trim();
+        // Sku/ItemCode are assigned by the caller (Create/UpdateAsync), not here — generating
+        // them needs an async sequence lookup this static mapper can't do.
         p.Name = r.Name.Trim();
         p.Description = string.IsNullOrWhiteSpace(r.Description) ? null : r.Description.Trim();
         p.ImageUrl = string.IsNullOrWhiteSpace(r.ImageUrl) ? null : r.ImageUrl.Trim();
@@ -214,7 +285,7 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
         }
     }
 
-    private async Task EnsureUniqueAsync(string sku, Guid? existingId, CancellationToken ct)
+    private async Task EnsureSkuUniqueAsync(string sku, Guid? existingId, CancellationToken ct)
     {
         var skuTaken = await db.Products.AnyAsync(p => p.Sku == sku.Trim() && p.Id != existingId, ct);
         if (skuTaken) throw new ConflictException($"SKU '{sku}' is already in use.");
@@ -222,20 +293,32 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
 
     private async Task EnsureTaxonomyReferencesExistAsync(UpsertProductRequest r, CancellationToken ct)
     {
-        if (!await db.Departments.AnyAsync(x => x.Id == r.DepartmentId, ct)) throw new NotFoundException("Department", r.DepartmentId);
-        if (!await db.Genders.AnyAsync(x => x.Id == r.GenderId, ct)) throw new NotFoundException("Gender", r.GenderId);
-        if (!await db.EventTypes.AnyAsync(x => x.Id == r.EventTypeId, ct)) throw new NotFoundException("EventType", r.EventTypeId);
-
-        var category = await db.Categories.FirstOrDefaultAsync(x => x.Id == r.CategoryId, ct) ?? throw new NotFoundException("Category", r.CategoryId);
-        if (category.DepartmentId != r.DepartmentId)
+        if (r.DepartmentId is { } deptId && !await db.Departments.AnyAsync(x => x.Id == deptId, ct))
         {
-            throw new ConflictException("The selected category does not belong to the selected department.");
+            throw new NotFoundException("Department", deptId);
+        }
+        if (r.GenderId is { } genderId && !await db.Genders.AnyAsync(x => x.Id == genderId, ct))
+        {
+            throw new NotFoundException("Gender", genderId);
+        }
+        if (r.EventTypeId is { } eventTypeId && !await db.EventTypes.AnyAsync(x => x.Id == eventTypeId, ct))
+        {
+            throw new NotFoundException("EventType", eventTypeId);
+        }
+
+        if (r.CategoryId is { } categoryId)
+        {
+            var category = await db.Categories.FirstOrDefaultAsync(x => x.Id == categoryId, ct) ?? throw new NotFoundException("Category", categoryId);
+            if (r.DepartmentId is { } deptForCategory && category.DepartmentId != deptForCategory)
+            {
+                throw new ConflictException("The selected category does not belong to the selected department.");
+            }
         }
 
         if (r.SubcategoryId is { } subId)
         {
             var subcategory = await db.Subcategories.FirstOrDefaultAsync(x => x.Id == subId, ct) ?? throw new NotFoundException("Subcategory", subId);
-            if (subcategory.CategoryId != r.CategoryId)
+            if (r.CategoryId is { } catForSub && subcategory.CategoryId != catForSub)
             {
                 throw new ConflictException("The selected subcategory does not belong to the selected category.");
             }
@@ -258,5 +341,110 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
         {
             throw new NotFoundException("Warehouse", warehouseId);
         }
+    }
+
+    private async Task<Dictionary<string, ProductFieldState>> GetFieldStatesAsync(CancellationToken ct)
+    {
+        var saved = await db.ProductFieldConfigs.ToDictionaryAsync(c => c.FieldKey, c => c.State, ct);
+        return ProductFieldCatalog.Fields.ToDictionary(f => f.Key, f => saved.GetValueOrDefault(f.Key, f.Default));
+    }
+
+    /// <summary>Defense in depth: the Product form already hides/requires fields per this same
+    /// config, but a direct API call (or a stale client) must not be able to bypass it.</summary>
+    private async Task ValidateFieldConfigAsync(UpsertProductRequest r, CancellationToken ct)
+    {
+        var states = await GetFieldStatesAsync(ct);
+        var errors = new Dictionary<string, string[]>();
+
+        void Require(string fieldKey, string requestPropertyName, bool isMissing)
+        {
+            if (isMissing && states[fieldKey] == ProductFieldState.Required)
+            {
+                var displayName = ProductFieldCatalog.Fields.First(f => f.Key == fieldKey).DisplayName;
+                errors[requestPropertyName] = [$"{displayName} is required."];
+            }
+        }
+
+        Require("Department", nameof(r.DepartmentId), r.DepartmentId is null);
+        Require("Gender", nameof(r.GenderId), r.GenderId is null);
+        Require("EventType", nameof(r.EventTypeId), r.EventTypeId is null);
+        Require("Category", nameof(r.CategoryId), r.CategoryId is null);
+        Require("Subcategory", nameof(r.SubcategoryId), r.SubcategoryId is null);
+        Require("Collection", nameof(r.CollectionId), r.CollectionId is null);
+        Require("Year", nameof(r.Year), r.Year is null);
+        Require("Supplier", nameof(r.SupplierId), r.SupplierId is null);
+        Require("WholesalePrice", nameof(r.WholesalePrice), r.WholesalePrice is null);
+        Require("Location", nameof(r.Location), string.IsNullOrWhiteSpace(r.Location));
+        Require("Description", nameof(r.Description), string.IsNullOrWhiteSpace(r.Description));
+        Require("ImageUrl", nameof(r.ImageUrl), string.IsNullOrWhiteSpace(r.ImageUrl));
+        // TaxRatePercent/DiscountPercent/MinStock/MaxStock/ReorderLevel are numeric with sensible
+        // zero defaults — "Required" for these is a form-UX nudge only, not server-enforceable.
+
+        if (errors.Count > 0)
+        {
+            throw new ValidationAppException(errors);
+        }
+    }
+
+    /// <summary>"{Dept 2 letters}-{Color 3 letters}-{sequence}", e.g. "FO-BLA-000123". Missing
+    /// segments fall back to fixed placeholders ("22"/"333") rather than guessing — this mirrors
+    /// BarcodeService's MissingSegmentDefault convention. Department/Color text is derived the
+    /// same way BarcodeService.DeriveShortCode does (letters/digits only, upper-cased, padded with
+    /// 'X' if too short) for consistency across the two generators.</summary>
+    private async Task<string> GenerateSkuAsync(UpsertProductRequest request, CancellationToken ct)
+    {
+        var deptSegment = "22";
+        if (request.DepartmentId is { } deptId)
+        {
+            var deptName = await db.Departments.Where(d => d.Id == deptId).Select(d => d.Name).FirstOrDefaultAsync(ct);
+            if (!string.IsNullOrWhiteSpace(deptName)) deptSegment = ShortCode(deptName, 2);
+        }
+
+        var colorSegment = "333";
+        var optionIds = request.Attributes.Select(a => a.ProductAttributeOptionId).ToList();
+        if (optionIds.Count > 0)
+        {
+            var colorName = await db.ProductAttributeOptions
+                .Where(o => optionIds.Contains(o.Id) && o.ProductAttributeType.Code == "COLOR")
+                .Select(o => o.Name)
+                .FirstOrDefaultAsync(ct);
+            if (!string.IsNullOrWhiteSpace(colorName)) colorSegment = ShortCode(colorName, 3);
+        }
+
+        var sequence = await NextSequenceValueAsync("sku_seq", ct);
+        return $"{deptSegment}-{colorSegment}-{sequence:D6}";
+    }
+
+    /// <summary>"{Name 3 letters}-{sequence}", e.g. "CLA-000045" for "Classic Sneaker".</summary>
+    private async Task<string> GenerateItemCodeAsync(string name, CancellationToken ct)
+    {
+        var sequence = await NextSequenceValueAsync("item_code_seq", ct);
+        return $"{ShortCode(name, 3)}-{sequence:D6}";
+    }
+
+    private static string ShortCode(string text, int length)
+    {
+        var letters = new string(text.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+        return letters.Length >= length ? letters[..length] : letters.PadRight(length, 'X');
+    }
+
+    /// <summary>Same raw-SQL nextval() pattern as DocumentNumberService — a real Postgres
+    /// sequence, not an in-memory counter, so it's safe under concurrent requests.</summary>
+    private async Task<long> NextSequenceValueAsync(string sequenceName, CancellationToken ct)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            await connection.OpenAsync(ct);
+        }
+
+        await using var command = connection.CreateCommand();
+        if (db.Database.CurrentTransaction is { } transaction)
+        {
+            command.Transaction = transaction.GetDbTransaction();
+        }
+        command.CommandText = $"SELECT nextval('{sequenceName}')";
+        var result = await command.ExecuteScalarAsync(ct);
+        return Convert.ToInt64(result);
     }
 }

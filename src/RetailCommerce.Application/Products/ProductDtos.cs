@@ -18,14 +18,14 @@ public record ProductDto(
     string Name,
     string? Description,
     string? ImageUrl,
-    Guid DepartmentId,
-    string DepartmentName,
-    Guid GenderId,
-    string GenderName,
-    Guid EventTypeId,
-    string EventTypeName,
-    Guid CategoryId,
-    string CategoryName,
+    Guid? DepartmentId,
+    string? DepartmentName,
+    Guid? GenderId,
+    string? GenderName,
+    Guid? EventTypeId,
+    string? EventTypeName,
+    Guid? CategoryId,
+    string? CategoryName,
     Guid? SubcategoryId,
     string? SubcategoryName,
     Guid? CollectionId,
@@ -58,16 +58,20 @@ public record ProductBarcodeDto(Guid Id, string Code, bool IsPrimary, bool IsAct
 
 public record AddProductBarcodeRequest(string Code);
 
+/// <summary>Sku/ItemCode are optional here on purpose: the Product form never sends them (the
+/// server always generates Sku, and generates ItemCode when not given) while bulk Excel import
+/// can still supply explicit values it wants trusted verbatim — see ProductService.CreateAsync/
+/// UpdateAsync for the exact "null = let the system decide" rule.</summary>
 public record UpsertProductRequest(
     string? ItemCode,
-    string Sku,
+    string? Sku,
     string Name,
     string? Description,
     string? ImageUrl,
-    Guid DepartmentId,
-    Guid GenderId,
-    Guid EventTypeId,
-    Guid CategoryId,
+    Guid? DepartmentId,
+    Guid? GenderId,
+    Guid? EventTypeId,
+    Guid? CategoryId,
     Guid? SubcategoryId,
     Guid? CollectionId,
     int? Year,
@@ -98,3 +102,10 @@ public class ProductListQuery : PagedQuery
     public int? Year { get; set; }
     public string? Status { get; set; }
 }
+
+/// <summary>One row of Settings → Product Fields. FieldKey is a fixed, backend-owned identifier
+/// (see ProductFieldSettingsService.KnownFields) — the admin can only change State, never add or
+/// remove rows. Sku/ItemCode never appear here (see ProductFieldConfig's doc comment).</summary>
+public record ProductFieldConfigDto(string FieldKey, string DisplayName, string State);
+
+public record UpdateProductFieldConfigRequest(string FieldKey, string State);

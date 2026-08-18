@@ -55,6 +55,7 @@ public static class DbSeeder
         // current barcode row yet — a no-op on a database with no products.
         await BackfillProductBarcodesAsync(db, logger);
         await EnsureBarcodeSettingsAsync(db);
+        await EnsureProductFieldConfigAsync(db);
     }
 
     /// <summary>Dev/staging-only sample taxonomy + catalog + demo store/warehouses (see class
@@ -148,6 +149,19 @@ public static class DbSeeder
     {
         if (await db.BarcodeSettings.AnyAsync()) return;
         db.BarcodeSettings.Add(new Domain.Catalog.BarcodeSettings());
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>One row per RetailCommerce.Application.Products.ProductFieldCatalog entry —
+    /// only ever adds missing keys (never overwrites an admin's saved State), so this stays
+    /// idempotent and safe to run on every startup, same as the barcode settings row above.</summary>
+    private static async Task EnsureProductFieldConfigAsync(AppDbContext db)
+    {
+        var existingKeys = await db.ProductFieldConfigs.Select(c => c.FieldKey).ToListAsync();
+        var missing = RetailCommerce.Application.Products.ProductFieldCatalog.Fields
+            .Where(f => !existingKeys.Contains(f.Key))
+            .Select(f => new Domain.Catalog.ProductFieldConfig { FieldKey = f.Key, State = f.Default });
+        db.ProductFieldConfigs.AddRange(missing);
         await db.SaveChangesAsync();
     }
 

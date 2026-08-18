@@ -17,6 +17,7 @@ using RetailCommerce.Application.Purchasing;
 using RetailCommerce.Application.Reports;
 using RetailCommerce.Application.Returns;
 using RetailCommerce.Application.Sales;
+using RetailCommerce.Application.Settings;
 using RetailCommerce.Application.Shifts;
 using RetailCommerce.Application.Stores;
 using RetailCommerce.Application.Suppliers;
@@ -39,6 +40,7 @@ using RetailCommerce.Infrastructure.Purchasing;
 using RetailCommerce.Infrastructure.Reports;
 using RetailCommerce.Infrastructure.Returns;
 using RetailCommerce.Infrastructure.Sales;
+using RetailCommerce.Infrastructure.Settings;
 using RetailCommerce.Infrastructure.Shifts;
 using RetailCommerce.Infrastructure.Stores;
 using RetailCommerce.Infrastructure.Suppliers;
@@ -96,6 +98,8 @@ public static class DependencyInjection
         services.AddScoped<IAttributeAdminService, AttributeAdminService>();
         services.AddScoped<IDataImportService, DataImportService>();
         services.AddScoped<IUserAdminService, UserAdminService>();
+        services.AddScoped<ICurrencySettingsService, CurrencySettingsService>();
+        services.AddScoped<IPosSettingsService, PosSettingsService>();
 
         return services;
     }

@@ -45,7 +45,7 @@ public class TaxonomyService(AppDbContext db) : ITaxonomyService
 
         var attributeTypeDtos = attributeTypes
             .Select(t => new AttributeTypeDto(
-                t.Id, t.Code, t.Name, t.DisplayOrder, t.IsRequired, t.DepartmentId,
+                t.Id, t.Code, t.Name, t.DisplayOrder, t.IsRequired, t.ShowOnPurchaseOrder, t.DepartmentId,
                 t.Options.Where(o => o.IsActive)
                     .OrderBy(o => o.Name)
                     .Select(o => new AttributeOptionDto(o.Id, o.Code, o.Name))

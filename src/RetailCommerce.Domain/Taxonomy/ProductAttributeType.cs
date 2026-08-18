@@ -14,6 +14,11 @@ public class ProductAttributeType : BaseEntity
     public int DisplayOrder { get; set; }
     public bool IsRequired { get; set; }
 
+    /// <summary>Master on/off for attribute badges on Purchase Orders is
+    /// PurchaseOrderSettings.ShowProductAttributes; this is the per-attribute-type override under
+    /// that master switch (e.g. show Color but not a rarely-needed internal attribute).</summary>
+    public bool ShowOnPurchaseOrder { get; set; } = true;
+
     public Guid? DepartmentId { get; set; }
     public Department? Department { get; set; }
 

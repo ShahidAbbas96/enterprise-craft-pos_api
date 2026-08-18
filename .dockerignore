@@ -1,0 +1,17 @@
+bin/
+obj/
+**/bin/
+**/obj/
+.vs/
+.vscode/
+.git/
+.github/
+publish-selfcontained/
+logs/
+*.log
+*.user
+DEPLOYMENT.md
+RUN_ON_NEW_MACHINE.md
+INSTALLATION_GUIDE.md
+CLAUDE.md
+enterprise-craft-pos_api.sln

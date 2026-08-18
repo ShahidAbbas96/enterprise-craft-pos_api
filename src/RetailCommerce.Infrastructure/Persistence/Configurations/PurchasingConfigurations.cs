@@ -9,7 +9,9 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
     public void Configure(EntityTypeBuilder<PurchaseOrder> b)
     {
         b.ToTable("PurchaseOrders");
-        b.Property(x => x.PoNumber).HasMaxLength(30).IsRequired();
+        // See OrderConfiguration.OrderNumber for why this is 100, not the length of any
+        // realistic generated value.
+        b.Property(x => x.PoNumber).HasMaxLength(100).IsRequired();
         b.HasIndex(x => x.PoNumber).IsUnique();
         b.Property(x => x.Reference).HasMaxLength(100);
         b.Property(x => x.Notes).HasMaxLength(500);
@@ -41,12 +43,20 @@ public class PurchaseOrderLineConfiguration : IEntityTypeConfiguration<PurchaseO
     }
 }
 
+public class PurchaseOrderSettingsConfiguration : IEntityTypeConfiguration<PurchaseOrderSettings>
+{
+    public void Configure(EntityTypeBuilder<PurchaseOrderSettings> b)
+    {
+        b.ToTable("PurchaseOrderSettings");
+    }
+}
+
 public class TransferConfiguration : IEntityTypeConfiguration<Transfer>
 {
     public void Configure(EntityTypeBuilder<Transfer> b)
     {
         b.ToTable("Transfers");
-        b.Property(x => x.TransferNumber).HasMaxLength(30).IsRequired();
+        b.Property(x => x.TransferNumber).HasMaxLength(100).IsRequired();
         b.HasIndex(x => x.TransferNumber).IsUnique();
         b.Property(x => x.Reference).HasMaxLength(100);
         b.Property(x => x.Notes).HasMaxLength(500);

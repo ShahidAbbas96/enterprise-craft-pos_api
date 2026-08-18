@@ -9,7 +9,11 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
     public void Configure(EntityTypeBuilder<Order> b)
     {
         b.ToTable("Orders");
-        b.Property(x => x.OrderNumber).HasMaxLength(30).IsRequired();
+        // 100 as a generous ceiling — DocumentNumberService generates a short "{2-letter
+        // prefix}{sequence}" value (well under 10 characters) with no store/warehouse code
+        // embedded, so this should never come close to being hit; it's just a safety margin
+        // against a Postgres "value too long" error, not the actual expected length.
+        b.Property(x => x.OrderNumber).HasMaxLength(100).IsRequired();
         b.HasIndex(x => x.OrderNumber).IsUnique();
 
         b.Property(x => x.Subtotal).HasPrecision(18, 2);
@@ -76,7 +80,7 @@ public class ReturnConfiguration : IEntityTypeConfiguration<Return>
     public void Configure(EntityTypeBuilder<Return> b)
     {
         b.ToTable("Returns");
-        b.Property(x => x.ReturnNumber).HasMaxLength(30).IsRequired();
+        b.Property(x => x.ReturnNumber).HasMaxLength(100).IsRequired();
         b.HasIndex(x => x.ReturnNumber).IsUnique();
         b.Property(x => x.Reason).HasMaxLength(300);
         b.Property(x => x.Total).HasPrecision(18, 2);

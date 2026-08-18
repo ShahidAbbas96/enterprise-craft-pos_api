@@ -3,29 +3,23 @@ using ClosedXML.Excel;
 namespace RetailCommerce.Infrastructure.DataManagement;
 
 /// <summary>Blank starter workbooks with just the header row, so an import file's column names
-/// are never guessed. Attribute-type columns (e.g. COLOR, SIZE) aren't baked in here since they
-/// vary per deployment — the product import accepts any extra column whose header matches an
-/// existing ProductAttributeType.Code, with the cell value being that attribute's option Code.</summary>
+/// are never guessed.</summary>
 public static class DataImportTemplateBuilder
 {
-    private static readonly string[] ProductColumns =
-    [
-        "SKU", "ItemCode", "Barcode", "Name", "Description", "Department", "Category", "Subcategory", "Gender", "EventType",
-        "Year", "Supplier", "Cost", "Price", "WholesalePrice", "TaxRatePercent", "DiscountPercent", "Unit",
-        "MinStock", "MaxStock", "ReorderLevel", "Location", "Status", "COLOR", "SIZE",
-    ];
-
     private static readonly string[] InventoryColumns = ["SKU", "WarehouseCode", "Quantity", "Reason"];
 
-    public static XLWorkbook BuildProductTemplate() => BuildTemplate("Products", ProductColumns);
+    /// <summary>Product columns are data-driven (Settings → Product Fields + active attribute
+    /// types) rather than a fixed list here — see DataImportService.BuildProductTemplateAsync,
+    /// which computes `columns` and is the only caller.</summary>
+    public static XLWorkbook BuildProductTemplate(IReadOnlyList<string> columns) => BuildTemplate("Products", columns);
 
     public static XLWorkbook BuildInventoryTemplate() => BuildTemplate("Inventory", InventoryColumns);
 
-    private static XLWorkbook BuildTemplate(string sheetName, string[] columns)
+    private static XLWorkbook BuildTemplate(string sheetName, IReadOnlyList<string> columns)
     {
         var wb = new XLWorkbook();
         var ws = wb.Worksheets.Add(sheetName);
-        for (var c = 0; c < columns.Length; c++)
+        for (var c = 0; c < columns.Count; c++)
         {
             var cell = ws.Cell(1, c + 1);
             cell.Value = columns[c];

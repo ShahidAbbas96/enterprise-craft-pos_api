@@ -32,6 +32,7 @@ public class AttributeAdminService(AppDbContext db) : IAttributeAdminService
             Name = request.Name.Trim(),
             DisplayOrder = request.DisplayOrder,
             IsRequired = request.IsRequired,
+            ShowOnPurchaseOrder = request.ShowOnPurchaseOrder,
             DepartmentId = request.DepartmentId,
         };
         db.ProductAttributeTypes.Add(entity);
@@ -53,6 +54,7 @@ public class AttributeAdminService(AppDbContext db) : IAttributeAdminService
         entity.Name = request.Name.Trim();
         entity.DisplayOrder = request.DisplayOrder;
         entity.IsRequired = request.IsRequired;
+        entity.ShowOnPurchaseOrder = request.ShowOnPurchaseOrder;
         entity.DepartmentId = request.DepartmentId;
         await db.SaveChangesAsync(ct);
         return await GetTypeDtoAsync(entity.Id, ct);
@@ -152,5 +154,5 @@ public class AttributeAdminService(AppDbContext db) : IAttributeAdminService
     }
 
     private static AttributeTypeItemDto ToTypeDto(ProductAttributeType t) => new(
-        t.Id, t.Code, t.Name, t.DisplayOrder, t.IsRequired, t.DepartmentId, t.Department?.Name, t.Options.Count);
+        t.Id, t.Code, t.Name, t.DisplayOrder, t.IsRequired, t.ShowOnPurchaseOrder, t.DepartmentId, t.Department?.Name, t.Options.Count);
 }

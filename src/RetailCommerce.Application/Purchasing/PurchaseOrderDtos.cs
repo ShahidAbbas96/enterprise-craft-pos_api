@@ -45,6 +45,10 @@ public record CreatePurchaseOrderRequest(
 
 public record UpdatePurchaseOrderStatusRequest(string Status);
 
+public record PurchaseOrderDisplaySettingsDto(bool ShowProductAttributes);
+
+public record UpdatePurchaseOrderDisplaySettingsRequest(bool ShowProductAttributes);
+
 public class PurchaseOrderListQuery : PagedQuery
 {
     public Guid? SupplierId { get; set; }

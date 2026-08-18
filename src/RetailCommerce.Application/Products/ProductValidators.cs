@@ -7,12 +7,12 @@ public class UpsertProductRequestValidator : AbstractValidator<UpsertProductRequ
 {
     public UpsertProductRequestValidator()
     {
+        // Name/Cost/Price/Unit/Status stay unconditionally required here — those, plus Sku/ItemCode,
+        // are the fixed core fields ProductFieldConfig can never hide (see ProductFieldConfig's doc
+        // comment). Every other field's Required/Optional/Hidden enforcement is data-driven from
+        // ProductFieldConfig, checked in ProductService — not hard-coded here, since it's admin-configurable.
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.Sku).NotEmpty().MaximumLength(50);
-        RuleFor(x => x.DepartmentId).NotEmpty();
-        RuleFor(x => x.GenderId).NotEmpty();
-        RuleFor(x => x.EventTypeId).NotEmpty();
-        RuleFor(x => x.CategoryId).NotEmpty();
+        RuleFor(x => x.Sku).MaximumLength(50);
         RuleFor(x => x.Cost).GreaterThanOrEqualTo(0);
         RuleFor(x => x.Price).GreaterThanOrEqualTo(0);
         RuleFor(x => x.WholesalePrice).GreaterThanOrEqualTo(0).When(x => x.WholesalePrice is not null);

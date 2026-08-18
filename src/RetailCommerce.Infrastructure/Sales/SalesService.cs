@@ -21,8 +21,10 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
 {
     public async Task<SaleDto> CreateSaleAsync(CreateSaleRequest request, Guid? cashierUserId, CancellationToken ct = default)
     {
-        var saleWarehouse = await db.Warehouses.Include(w => w.Store).FirstOrDefaultAsync(w => w.Id == request.WarehouseId, ct)
-                             ?? throw new NotFoundException("Warehouse", request.WarehouseId);
+        if (!await db.Warehouses.AnyAsync(w => w.Id == request.WarehouseId, ct))
+        {
+            throw new NotFoundException("Warehouse", request.WarehouseId);
+        }
 
         Customer? customer = null;
         if (request.CustomerId is { } customerId)
@@ -64,8 +66,7 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
-        var storeSegment = saleWarehouse.Store?.Code ?? saleWarehouse.Code;
-        var orderNumber = await documentNumbers.NextAsync(DocumentType.SalesInvoice, storeSegment, ct);
+        var orderNumber = await documentNumbers.NextAsync(DocumentType.SalesInvoice, ct);
 
         var order = new Order
         {
@@ -80,7 +81,7 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
             CreatedByUserId = cashierUserId,
         };
 
-        decimal subtotal = 0, discountTotal = 0, taxTotal = 0;
+        decimal subtotal = 0, discountTotal = 0;
         var appliedDiscountLabels = new List<string>();
 
         foreach (var lineInput in request.Lines)
@@ -101,13 +102,13 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
             if (lineDiscountLabel is not null) appliedDiscountLabels.Add(lineDiscountLabel);
 
             var lineDiscount = Math.Round(lineSubtotal * linePercent / 100m, 2);
-            var lineTaxable = lineSubtotal - lineDiscount;
-            var lineTax = Math.Round(lineTaxable * product.TaxRatePercent / 100m, 2);
-            var lineTotal = lineTaxable + lineTax;
+            // POS sales don't add tax on top of the price — Product.TaxRatePercent is still
+            // snapshotted onto the line below for record-keeping, but no tax amount is charged
+            // or persisted here.
+            var lineTotal = lineSubtotal - lineDiscount;
 
             subtotal += lineSubtotal;
             discountTotal += lineDiscount;
-            taxTotal += lineTax;
 
             order.Lines.Add(new OrderLine
             {
@@ -155,8 +156,8 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
 
         order.Subtotal = subtotal;
         order.DiscountAmount = discountTotal;
-        order.TaxAmount = taxTotal;
-        order.Total = subtotal - discountTotal + taxTotal;
+        order.TaxAmount = 0m;
+        order.Total = subtotal - discountTotal;
         order.DiscountLabel = appliedDiscountLabels.Count > 0 ? string.Join(", ", appliedDiscountLabels.Distinct()) : null;
         order.Payments.Add(new Payment { Method = paymentMethod, Amount = order.Total });
 
@@ -232,11 +233,11 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
     {
         if (productDiscounts.TryGetValue(product.Id, out var productDiscount))
         {
-            return (EffectivePercent(productDiscount, lineSubtotal), LabelFor(productDiscount));
+            return (EffectivePercent(productDiscount, lineSubtotal, product.Price), LabelFor(productDiscount));
         }
-        if (departmentDiscounts.TryGetValue(product.DepartmentId, out var departmentDiscount))
+        if (product.DepartmentId is { } deptId && departmentDiscounts.TryGetValue(deptId, out var departmentDiscount))
         {
-            return (EffectivePercent(departmentDiscount, lineSubtotal), LabelFor(departmentDiscount));
+            return (EffectivePercent(departmentDiscount, lineSubtotal, product.Price), LabelFor(departmentDiscount));
         }
         if (manualPercent > 0)
         {
@@ -251,9 +252,18 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
     private static string LabelFor(Discount discount) =>
         discount.Type == DiscountValueType.Percentage ? $"{discount.Name} ({discount.Value:0.##}%)" : discount.Name;
 
-    private static decimal EffectivePercent(Discount discount, decimal lineSubtotal)
+    /// <summary>Every discount type funnels into a percent-of-lineSubtotal so OrderLine can keep
+    /// storing a single DiscountPercent regardless of how the discount was originally defined.
+    /// FixedPrice needs the per-unit price (not lineSubtotal, which already includes quantity) to
+    /// compute how big a percentage its flat final price represents.</summary>
+    private static decimal EffectivePercent(Discount discount, decimal lineSubtotal, decimal unitPrice)
     {
         if (discount.Type == DiscountValueType.Percentage) return discount.Value;
+        if (discount.Type == DiscountValueType.FixedPrice)
+        {
+            if (unitPrice <= 0) return 0;
+            return Math.Min(100, Math.Max(0, (unitPrice - discount.Value) / unitPrice * 100));
+        }
         if (lineSubtotal <= 0) return 0;
         return Math.Min(100, discount.Value / lineSubtotal * 100);
     }
