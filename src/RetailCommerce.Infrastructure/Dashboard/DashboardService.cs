@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RetailCommerce.Application.Common;
 using RetailCommerce.Application.Dashboard;
 using RetailCommerce.Domain.Common;
 using RetailCommerce.Domain.Inventory;
@@ -9,21 +10,30 @@ namespace RetailCommerce.Infrastructure.Dashboard;
 
 /// <summary>Every figure is a real aggregation query — the reference prototype's dashboard was
 /// entirely hardcoded literals (`currency(26310)` etc. baked into the component).</summary>
-public class DashboardService(AppDbContext db) : IDashboardService
+public class DashboardService(AppDbContext db, ICurrentUserService currentUser) : IDashboardService
 {
     public async Task<DashboardSummaryDto> GetSummaryAsync(CancellationToken ct = default)
     {
+        // No query param exists for this endpoint — Dashboard has always been company-wide, so
+        // the only way a terminal-scoped Cashier or a store-pinned StoreManager gets restricted
+        // is via the claim itself (there is nothing for them to "request" here, so this always
+        // resolves to their own store rather than ever throwing on mismatch). SuperAdmin/
+        // HeadOffice (no pinned StoreId) get null back and keep seeing every store's numbers.
+        var storeId = currentUser.ResolveStoreScope(null);
+
         var now = DateTimeOffset.UtcNow;
         var todayStart = new DateTimeOffset(now.Date, TimeSpan.Zero);
         var monthStart = new DateTimeOffset(new DateTime(now.Year, now.Month, 1), TimeSpan.Zero);
         var trendStart = todayStart.AddDays(-6);
         var windowStart = monthStart < trendStart ? monthStart : trendStart;
 
-        var orders = await db.Orders
+        var ordersQuery = db.Orders
             .Where(o => o.Status == OrderStatus.Completed && o.CreatedAtUtc >= windowStart)
             .Include(o => o.Lines)
             .Include(o => o.Warehouse)
-            .ToListAsync(ct);
+            .AsQueryable();
+        if (storeId is { } sid) ordersQuery = ordersQuery.Where(o => o.Warehouse.StoreId == sid);
+        var orders = await ordersQuery.ToListAsync(ct);
 
         var productIds = orders.SelectMany(o => o.Lines).Select(l => l.ProductId).Distinct().ToList();
         var productInfo = await db.Products
@@ -58,15 +68,18 @@ public class DashboardService(AppDbContext db) : IDashboardService
             .OrderByDescending(w => w.Sales)
             .ToList();
 
-        var (inventoryValue, totalActiveSkus, lowStockCount, outOfStockCount) = await ComputeStockPositionAsync(ct);
+        var (inventoryValue, totalActiveSkus, lowStockCount, outOfStockCount) = await ComputeStockPositionAsync(storeId, ct);
 
+        // Purchasing/Transfers are back-office tools already role-gated away from Cashier/
+        // StoreManager (CatalogManagers policy) and Customers are an explicitly shared,
+        // company-wide list (see plan) — none of these three are store-partitioned by design.
         var pendingPurchaseOrders = await db.PurchaseOrders
             .CountAsync(po => po.Status == PurchaseOrderStatus.Submitted || po.Status == PurchaseOrderStatus.Approved, ct);
         var openTransfers = await db.Transfers
             .CountAsync(t => t.Status == TransferStatus.Draft || t.Status == TransferStatus.InTransit, ct);
         var totalCustomers = await db.Customers.CountAsync(ct);
 
-        var recentActivity = await BuildRecentActivityAsync(ct);
+        var recentActivity = await BuildRecentActivityAsync(storeId, ct);
 
         return new DashboardSummaryDto(
             TodaySales: todayOrders.Sum(o => o.Total),
@@ -110,12 +123,18 @@ public class DashboardService(AppDbContext db) : IDashboardService
             .ToList();
     }
 
-    private async Task<(decimal InventoryValue, int TotalActiveSkus, int LowStockCount, int OutOfStockCount)> ComputeStockPositionAsync(CancellationToken ct)
+    /// <summary>When <paramref name="storeId"/> is set (terminal-scoped or StoreManager caller),
+    /// stock figures — and which SKUs even count as "active" for this KPI — are scoped to that
+    /// store's own warehouses only, never leaking another store's inventory value/counts.</summary>
+    private async Task<(decimal InventoryValue, int TotalActiveSkus, int LowStockCount, int OutOfStockCount)> ComputeStockPositionAsync(Guid? storeId, CancellationToken ct)
     {
         var products = await db.Products
             .Select(p => new { p.Id, p.Cost, p.ReorderLevel, p.Status })
             .ToListAsync(ct);
-        var stockByProduct = await db.InventoryBalances
+
+        var balances = db.InventoryBalances.AsQueryable();
+        if (storeId is { } sid) balances = balances.Where(i => i.Warehouse.StoreId == sid);
+        var stockByProduct = await balances
             .GroupBy(i => i.ProductId)
             .Select(g => new { ProductId = g.Key, Qty = g.Sum(x => x.Quantity) })
             .ToDictionaryAsync(x => x.ProductId, x => x.Qty, ct);
@@ -127,8 +146,9 @@ public class DashboardService(AppDbContext db) : IDashboardService
 
         foreach (var p in products)
         {
-            if (p.Status == ProductStatus.Active) totalActiveSkus++;
             var qty = stockByProduct.GetValueOrDefault(p.Id, 0);
+            if (storeId is not null && qty == 0 && !stockByProduct.ContainsKey(p.Id)) continue; // not carried by this store at all
+            if (p.Status == ProductStatus.Active) totalActiveSkus++;
             inventoryValue += qty * p.Cost;
             if (qty == 0) outOfStockCount++;
             else if (qty <= p.ReorderLevel) lowStockCount++;
@@ -137,11 +157,14 @@ public class DashboardService(AppDbContext db) : IDashboardService
         return (inventoryValue, totalActiveSkus, lowStockCount, outOfStockCount);
     }
 
-    private async Task<List<ActivityItemDto>> BuildRecentActivityAsync(CancellationToken ct)
+    private async Task<List<ActivityItemDto>> BuildRecentActivityAsync(Guid? storeId, CancellationToken ct)
     {
-        var recentMovements = await db.StockMovements
+        var movementsQuery = db.StockMovements
             .Include(m => m.Product)
             .Include(m => m.Warehouse)
+            .AsQueryable();
+        if (storeId is { } sid) movementsQuery = movementsQuery.Where(m => m.Warehouse.StoreId == sid);
+        var recentMovements = await movementsQuery
             .OrderByDescending(m => m.CreatedAtUtc)
             .Take(8)
             .ToListAsync(ct);

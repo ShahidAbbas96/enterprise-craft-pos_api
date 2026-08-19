@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RetailCommerce.Application.Common;
 using RetailCommerce.Application.Reports;
 using RetailCommerce.Domain.Common;
 using RetailCommerce.Infrastructure.Persistence;
@@ -7,7 +8,7 @@ namespace RetailCommerce.Infrastructure.Reports;
 
 /// <summary>Every report here is a real query over Orders/OrderLines/InventoryBalances — the
 /// reference prototype's Reports screen had zero real data behind any of its report tiles.</summary>
-public class ReportsService(AppDbContext db) : IReportsService
+public class ReportsService(AppDbContext db, ICurrentUserService currentUser) : IReportsService
 {
     public async Task<SalesReportDto> GetSalesReportAsync(int days, CancellationToken ct = default)
     {
@@ -100,7 +101,17 @@ public class ReportsService(AppDbContext db) : IReportsService
             .Where(l => l.Order.CreatedAtUtc >= start && l.Order.CreatedAtUtc <= end)
             .AsQueryable();
 
-        if (query.WarehouseId is { } wh) linesQuery = linesQuery.Where(l => l.Order.WarehouseId == wh);
+        // Resolved before filtering (not just validated) so a terminal-scoped POS caller's report
+        // is silently pinned to its own store/warehouse/terminal with no filter UI needed
+        // (requirement: POS reports auto-scope); a StoreManager is pinned to their store but free
+        // to filter within it; SuperAdmin/HeadOffice remain fully unrestricted.
+        var storeId = currentUser.ResolveStoreScope(query.StoreId);
+        var warehouseId = currentUser.ResolveWarehouseScope(query.WarehouseId);
+        var terminalId = currentUser.ResolveTerminalScope(query.TerminalId);
+
+        if (storeId is { } st) linesQuery = linesQuery.Where(l => l.Order.Warehouse.StoreId == st);
+        if (warehouseId is { } wh) linesQuery = linesQuery.Where(l => l.Order.WarehouseId == wh);
+        if (terminalId is { } tid) linesQuery = linesQuery.Where(l => l.Order.TerminalId == tid);
         if (query.DepartmentId is { } dept) linesQuery = linesQuery.Where(l => l.Product.DepartmentId == dept);
 
         var lines = await linesQuery.OrderBy(l => l.Order.CreatedAtUtc).ToListAsync(ct);
@@ -114,7 +125,7 @@ public class ReportsService(AppDbContext db) : IReportsService
 
         var dtos = lines.Select(l => BuildSalesDetailLine(l, returnTotals.GetValueOrDefault(l.Id))).ToList();
 
-        var warehouseName = query.WarehouseId is { } whId
+        var warehouseName = warehouseId is { } whId
             ? await db.Warehouses.Where(w => w.Id == whId).Select(w => w.Name).FirstOrDefaultAsync(ct) ?? "All"
             : "All";
         var departmentName = query.DepartmentId is { } deptId
@@ -204,7 +215,11 @@ public class ReportsService(AppDbContext db) : IReportsService
             .Where(i => i.Quantity > 0)
             .AsQueryable();
 
-        if (query.WarehouseId is { } wh) balancesQuery = balancesQuery.Where(i => i.WarehouseId == wh);
+        var storeId = currentUser.ResolveStoreScope(query.StoreId);
+        var warehouseId = currentUser.ResolveWarehouseScope(query.WarehouseId);
+
+        if (storeId is { } st) balancesQuery = balancesQuery.Where(i => i.Warehouse.StoreId == st);
+        if (warehouseId is { } wh) balancesQuery = balancesQuery.Where(i => i.WarehouseId == wh);
         if (query.DepartmentId is { } dept) balancesQuery = balancesQuery.Where(i => i.Product.DepartmentId == dept);
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
@@ -219,7 +234,7 @@ public class ReportsService(AppDbContext db) : IReportsService
 
         var dtos = balances.Select(BuildStockOnHandLine).ToList();
 
-        var warehouseName = query.WarehouseId is { } whId
+        var warehouseName = warehouseId is { } whId
             ? await db.Warehouses.Where(w => w.Id == whId).Select(w => w.Name).FirstOrDefaultAsync(ct) ?? "All"
             : "All";
         var departmentName = query.DepartmentId is { } deptId

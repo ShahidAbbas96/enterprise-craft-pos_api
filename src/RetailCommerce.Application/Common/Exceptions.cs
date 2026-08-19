@@ -17,3 +17,8 @@ public class ValidationAppException(IDictionary<string, string[]> errors) : Exce
 
 /// <summary>Credentials were rejected or a token is invalid/expired. The Api layer maps this to HTTP 401.</summary>
 public class AuthenticationFailedException(string message) : Exception(message);
+
+/// <summary>The caller is authenticated but not allowed to act on the given resource — most
+/// commonly a terminal-scoped POS token naming a WarehouseId that isn't its own. The Api layer
+/// maps this to HTTP 403.</summary>
+public class ForbiddenException(string message) : Exception(message);

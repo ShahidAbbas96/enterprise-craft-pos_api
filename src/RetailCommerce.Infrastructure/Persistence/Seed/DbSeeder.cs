@@ -6,6 +6,7 @@ using RetailCommerce.Application.Common;
 using RetailCommerce.Domain.Catalog;
 using RetailCommerce.Domain.Common;
 using RetailCommerce.Domain.Inventory;
+using RetailCommerce.Domain.Sales;
 using RetailCommerce.Domain.Taxonomy;
 using RetailCommerce.Infrastructure.Identity;
 using RetailCommerce.Infrastructure.Products;
@@ -56,6 +57,7 @@ public static class DbSeeder
         await BackfillProductBarcodesAsync(db, logger);
         await EnsureBarcodeSettingsAsync(db);
         await EnsureProductFieldConfigAsync(db);
+        await EnsurePosTerminalsAsync(db);
     }
 
     /// <summary>Dev/staging-only sample taxonomy + catalog + demo store/warehouses (see class
@@ -162,6 +164,42 @@ public static class DbSeeder
             .Where(f => !existingKeys.Contains(f.Key))
             .Select(f => new Domain.Catalog.ProductFieldConfig { FieldKey = f.Key, State = f.Default });
         db.ProductFieldConfigs.AddRange(missing);
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>For every Store that has at least one Warehouse but no PosTerminal yet, creates
+    /// one default "POS 1" terminal on that store's lowest-Code warehouse and assigns every
+    /// existing ApplicationUser already scoped to that store — so upgrading to the multi-terminal
+    /// model is zero-friction: every current cashier keeps working through a single auto-assigned
+    /// terminal, no picker shown, until an admin explicitly adds more. The idempotency check is
+    /// per-store (not one global "any terminals exist" flag) so re-running never duplicates and a
+    /// store added after the first run still gets backfilled on the next startup.</summary>
+    private static async Task EnsurePosTerminalsAsync(AppDbContext db)
+    {
+        var storesNeedingTerminal = await db.Stores
+            .Include(s => s.Warehouses)
+            .Where(s => s.Warehouses.Any() && !db.PosTerminals.Any(t => t.Warehouse.StoreId == s.Id))
+            .ToListAsync();
+
+        if (storesNeedingTerminal.Count == 0) return;
+
+        foreach (var store in storesNeedingTerminal)
+        {
+            var warehouse = store.Warehouses.OrderBy(w => w.Code).First();
+            var terminal = new PosTerminal
+            {
+                Id = Guid.NewGuid(),
+                Code = $"{store.Code}-POS1",
+                Name = "POS 1",
+                WarehouseId = warehouse.Id,
+                IsActive = true,
+            };
+            db.PosTerminals.Add(terminal);
+
+            var userIds = await db.Users.Where(u => u.StoreId == store.Id).Select(u => u.Id).ToListAsync();
+            db.PosTerminalUsers.AddRange(userIds.Select(uid => new PosTerminalUser { TerminalId = terminal.Id, UserId = uid }));
+        }
+
         await db.SaveChangesAsync();
     }
 

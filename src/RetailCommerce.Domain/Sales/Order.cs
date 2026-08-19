@@ -29,6 +29,11 @@ public class Order : BaseEntity
     public Guid? SalesPersonId { get; set; }
     public Employee? SalesPerson { get; set; }
 
+    /// <summary>Which till rang this sale — audit only. Stock/report scoping always uses
+    /// WarehouseId; this is never itself the source of truth for what a terminal can access.</summary>
+    public Guid? TerminalId { get; set; }
+    public PosTerminal? Terminal { get; set; }
+
     public PaymentMethod PaymentMethod { get; set; } = PaymentMethod.Cash;
     public string? Notes { get; set; }
 

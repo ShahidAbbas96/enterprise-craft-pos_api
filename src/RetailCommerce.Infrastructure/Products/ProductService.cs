@@ -9,10 +9,15 @@ using RetailCommerce.Infrastructure.Persistence;
 
 namespace RetailCommerce.Infrastructure.Products;
 
-public class ProductService(AppDbContext db, IBarcodeService barcodeService) : IProductService
+public class ProductService(AppDbContext db, IBarcodeService barcodeService, ICurrentUserService currentUser) : IProductService
 {
     public async Task<PagedResult<ProductDto>> ListAsync(ProductListQuery query, CancellationToken ct = default)
     {
+        // Forced to the caller's own warehouse for a terminal-scoped POS token (never null there,
+        // even if the client omitted it); stays null/whatever-was-requested for a back-office
+        // token, so the admin Products screen keeps seeing the full global catalog unfiltered.
+        var warehouseId = currentUser.ResolveWarehouseScope(query.WarehouseId);
+
         var products = db.Products
             .Include(p => p.Department)
             .Include(p => p.Gender)
@@ -24,6 +29,13 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
             .Include(p => p.AttributeValues).ThenInclude(v => v.ProductAttributeType)
             .Include(p => p.AttributeValues).ThenInclude(v => v.ProductAttributeOption)
             .AsQueryable();
+
+        // A store's POS only lists products it has ever stocked (an InventoryBalance row exists
+        // for its warehouse, even at zero quantity) — never the whole chain-wide catalog.
+        if (warehouseId is { } scopedWarehouseId)
+        {
+            products = products.Where(p => db.InventoryBalances.Any(i => i.ProductId == p.Id && i.WarehouseId == scopedWarehouseId));
+        }
 
         if (query.DepartmentId is { } dep) products = products.Where(p => p.DepartmentId == dep);
         if (query.GenderId is { } gen) products = products.Where(p => p.GenderId == gen);
@@ -55,8 +67,9 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService) : I
             .ToListAsync(ct);
 
         var productIds = page.Select(p => p.Id).ToList();
-        var stockByProduct = await db.InventoryBalances
-            .Where(i => productIds.Contains(i.ProductId))
+        var stockBalances = db.InventoryBalances.Where(i => productIds.Contains(i.ProductId));
+        if (warehouseId is { } stockWarehouseId) stockBalances = stockBalances.Where(i => i.WarehouseId == stockWarehouseId);
+        var stockByProduct = await stockBalances
             .GroupBy(i => i.ProductId)
             .Select(g => new { ProductId = g.Key, Total = g.Sum(x => x.Quantity) })
             .ToDictionaryAsync(x => x.ProductId, x => x.Total, ct);

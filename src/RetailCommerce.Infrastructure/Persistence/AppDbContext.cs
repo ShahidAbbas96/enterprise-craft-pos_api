@@ -54,6 +54,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, 
     public DbSet<Discount> Discounts => Set<Discount>();
     public DbSet<Return> Returns => Set<Return>();
     public DbSet<ReturnLine> ReturnLines => Set<ReturnLine>();
+    public DbSet<PosTerminal> PosTerminals => Set<PosTerminal>();
+    public DbSet<PosTerminalUser> PosTerminalUsers => Set<PosTerminalUser>();
 
     // Shifts
     public DbSet<Shift> Shifts => Set<Shift>();

@@ -101,6 +101,12 @@ public class ProductListQuery : PagedQuery
     public Guid? CollectionId { get; set; }
     public int? Year { get; set; }
     public string? Status { get; set; }
+
+    /// <summary>Optional even for back-office callers (the admin Products screen wants the full
+    /// global catalog) — but forced by ICurrentUserService.ResolveWarehouseScope for a
+    /// terminal-scoped POS caller. When set, TotalStock on each returned product reflects only
+    /// this warehouse's own InventoryBalance, not the cross-warehouse aggregate.</summary>
+    public Guid? WarehouseId { get; set; }
 }
 
 /// <summary>One row of Settings → Product Fields. FieldKey is a fixed, backend-owned identifier

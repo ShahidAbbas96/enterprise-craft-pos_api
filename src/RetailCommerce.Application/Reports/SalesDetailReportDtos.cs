@@ -77,6 +77,8 @@ public class SalesDetailReportQuery
 {
     public DateOnly? FromDate { get; set; }
     public DateOnly? ToDate { get; set; }
+    public Guid? StoreId { get; set; }
     public Guid? WarehouseId { get; set; }
+    public Guid? TerminalId { get; set; }
     public Guid? DepartmentId { get; set; }
 }

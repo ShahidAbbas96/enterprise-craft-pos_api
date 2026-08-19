@@ -7,11 +7,12 @@ using RetailCommerce.Infrastructure.Persistence;
 
 namespace RetailCommerce.Infrastructure.Shifts;
 
-public class ShiftService(AppDbContext db, IDocumentNumberService documentNumbers) : IShiftService
+public class ShiftService(AppDbContext db, IDocumentNumberService documentNumbers, ICurrentUserService currentUser) : IShiftService
 {
     public async Task<ShiftDto?> GetOpenShiftAsync(Guid warehouseId, CancellationToken ct = default)
     {
-        var shift = await Query().FirstOrDefaultAsync(s => s.WarehouseId == warehouseId && s.Status == ShiftStatus.Open, ct);
+        var scopedWarehouseId = currentUser.ResolveWarehouseScope(warehouseId);
+        var shift = await Query().FirstOrDefaultAsync(s => s.WarehouseId == scopedWarehouseId && s.Status == ShiftStatus.Open, ct);
         if (shift is null) return null;
         var names = await GetUserNamesAsync([shift], ct);
         return await ToDtoWithLiveTotalsAsync(shift, names, ct);
@@ -19,11 +20,12 @@ public class ShiftService(AppDbContext db, IDocumentNumberService documentNumber
 
     public async Task<ShiftDto> OpenShiftAsync(OpenShiftRequest request, Guid? userId, CancellationToken ct = default)
     {
-        if (!await db.Warehouses.AnyAsync(w => w.Id == request.WarehouseId, ct))
+        var warehouseId = currentUser.ResolveWarehouseScope(request.WarehouseId);
+        if (!await db.Warehouses.AnyAsync(w => w.Id == warehouseId, ct))
         {
-            throw new NotFoundException("Warehouse", request.WarehouseId);
+            throw new NotFoundException("Warehouse", warehouseId);
         }
-        if (await db.Shifts.AnyAsync(s => s.WarehouseId == request.WarehouseId && s.Status == ShiftStatus.Open, ct))
+        if (await db.Shifts.AnyAsync(s => s.WarehouseId == warehouseId && s.Status == ShiftStatus.Open, ct))
         {
             throw new ConflictException("A shift is already open for this warehouse.");
         }
@@ -31,7 +33,7 @@ public class ShiftService(AppDbContext db, IDocumentNumberService documentNumber
         var shift = new Shift
         {
             ShiftNumber = await documentNumbers.NextAsync(DocumentType.Shift, ct: ct),
-            WarehouseId = request.WarehouseId,
+            WarehouseId = warehouseId,
             OpenedByUserId = userId,
             OpenedAtUtc = DateTimeOffset.UtcNow,
             Status = ShiftStatus.Open,
@@ -44,6 +46,7 @@ public class ShiftService(AppDbContext db, IDocumentNumberService documentNumber
     public async Task<ShiftSummaryDto> GetSummaryAsync(Guid shiftId, CancellationToken ct = default)
     {
         var shift = await db.Shifts.FirstOrDefaultAsync(s => s.Id == shiftId, ct) ?? throw new NotFoundException("Shift", shiftId);
+        currentUser.ResolveWarehouseScope(shift.WarehouseId);
         var (totalSales, totalExpenses) = await ComputeLiveTotalsAsync(shift, ct);
         var expenses = await GetExpenseDtosAsync(shiftId, ct);
         return new ShiftSummaryDto(shift.Id, totalSales, totalExpenses, totalSales - totalExpenses, expenses);
@@ -52,6 +55,7 @@ public class ShiftService(AppDbContext db, IDocumentNumberService documentNumber
     public async Task<ExpenseDto> AddExpenseAsync(Guid shiftId, AddExpenseRequest request, Guid? userId, CancellationToken ct = default)
     {
         var shift = await db.Shifts.FirstOrDefaultAsync(s => s.Id == shiftId, ct) ?? throw new NotFoundException("Shift", shiftId);
+        currentUser.ResolveWarehouseScope(shift.WarehouseId);
         if (shift.Status != ShiftStatus.Open)
         {
             throw new ConflictException("Cannot add an expense to a closed shift.");
@@ -79,6 +83,7 @@ public class ShiftService(AppDbContext db, IDocumentNumberService documentNumber
     public async Task<ShiftDto> CloseShiftAsync(Guid shiftId, Guid? userId, CancellationToken ct = default)
     {
         var shift = await db.Shifts.FirstOrDefaultAsync(s => s.Id == shiftId, ct) ?? throw new NotFoundException("Shift", shiftId);
+        currentUser.ResolveWarehouseScope(shift.WarehouseId);
         if (shift.Status != ShiftStatus.Open)
         {
             throw new ConflictException("This shift is already closed.");
@@ -99,6 +104,7 @@ public class ShiftService(AppDbContext db, IDocumentNumberService documentNumber
     public async Task<ShiftDto> GetAsync(Guid id, CancellationToken ct = default)
     {
         var shift = await Query().FirstOrDefaultAsync(s => s.Id == id, ct) ?? throw new NotFoundException("Shift", id);
+        currentUser.ResolveWarehouseScope(shift.WarehouseId);
         var names = await GetUserNamesAsync([shift], ct);
         return await ToDtoWithLiveTotalsAsync(shift, names, ct);
     }
@@ -106,7 +112,7 @@ public class ShiftService(AppDbContext db, IDocumentNumberService documentNumber
     public async Task<PagedResult<ShiftDto>> ListAsync(ShiftListQuery query, CancellationToken ct = default)
     {
         var shifts = Query();
-        if (query.WarehouseId is { } wh) shifts = shifts.Where(s => s.WarehouseId == wh);
+        if (currentUser.ResolveWarehouseScope(query.WarehouseId) is { } wh) shifts = shifts.Where(s => s.WarehouseId == wh);
         if (!string.IsNullOrWhiteSpace(query.Status) && Enum.TryParse<ShiftStatus>(query.Status, true, out var status))
         {
             shifts = shifts.Where(s => s.Status == status);

@@ -12,7 +12,7 @@ namespace RetailCommerce.Infrastructure.Returns;
 /// (same formula SalesService used to compute LineTotal), so a full-quantity return refunds
 /// exactly what was charged and a partial return is proportional — no separate refund math to
 /// keep in sync.</summary>
-public class ReturnsService(AppDbContext db, IDocumentNumberService documentNumbers) : IReturnsService
+public class ReturnsService(AppDbContext db, IDocumentNumberService documentNumbers, ICurrentUserService currentUser) : IReturnsService
 {
     public async Task<ReturnableSaleDto> LookupAsync(string orderNumber, CancellationToken ct = default)
     {
@@ -23,6 +23,9 @@ public class ReturnsService(AppDbContext db, IDocumentNumberService documentNumb
             .Include(o => o.Lines)
             .FirstOrDefaultAsync(o => o.OrderNumber == trimmed, ct)
             ?? throw new NotFoundException("Order", trimmed);
+        // A terminal-scoped cashier can't return/exchange an invoice rung at another store, even
+        // by guessing/typing its number — this throws ForbiddenException on mismatch.
+        currentUser.ResolveWarehouseScope(order.WarehouseId);
 
         var lineIds = order.Lines.Select(l => l.Id).ToList();
         var returnedByLine = await db.ReturnLines
@@ -47,6 +50,7 @@ public class ReturnsService(AppDbContext db, IDocumentNumberService documentNumb
     {
         var order = await db.Orders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == request.OrderId, ct)
                     ?? throw new NotFoundException("Order", request.OrderId);
+        currentUser.ResolveWarehouseScope(order.WarehouseId);
 
         var orderLines = order.Lines.ToDictionary(l => l.Id);
         foreach (var lineInput in request.Lines)
@@ -148,7 +152,7 @@ public class ReturnsService(AppDbContext db, IDocumentNumberService documentNumb
     public async Task<PagedResult<ReturnDto>> ListAsync(ReturnListQuery query, CancellationToken ct = default)
     {
         var returns = Query();
-        if (query.WarehouseId is { } wh) returns = returns.Where(r => r.WarehouseId == wh);
+        if (currentUser.ResolveWarehouseScope(query.WarehouseId) is { } wh) returns = returns.Where(r => r.WarehouseId == wh);
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var term = query.Search.Trim();

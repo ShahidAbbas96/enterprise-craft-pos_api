@@ -12,6 +12,7 @@ using RetailCommerce.Application.DataManagement;
 using RetailCommerce.Application.Discounts;
 using RetailCommerce.Application.Employees;
 using RetailCommerce.Application.Inventory;
+using RetailCommerce.Application.PosTerminals;
 using RetailCommerce.Application.Products;
 using RetailCommerce.Application.Purchasing;
 using RetailCommerce.Application.Reports;
@@ -35,6 +36,7 @@ using RetailCommerce.Infrastructure.Employees;
 using RetailCommerce.Infrastructure.Identity;
 using RetailCommerce.Infrastructure.Inventory;
 using RetailCommerce.Infrastructure.Persistence;
+using RetailCommerce.Infrastructure.PosTerminals;
 using RetailCommerce.Infrastructure.Products;
 using RetailCommerce.Infrastructure.Purchasing;
 using RetailCommerce.Infrastructure.Reports;
@@ -100,6 +102,7 @@ public static class DependencyInjection
         services.AddScoped<IUserAdminService, UserAdminService>();
         services.AddScoped<ICurrencySettingsService, CurrencySettingsService>();
         services.AddScoped<IPosSettingsService, PosSettingsService>();
+        services.AddScoped<IPosTerminalService, PosTerminalService>();
 
         return services;
     }

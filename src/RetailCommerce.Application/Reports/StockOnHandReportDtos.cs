@@ -29,6 +29,7 @@ public record StockOnHandReportDto(
 
 public class StockOnHandQuery
 {
+    public Guid? StoreId { get; set; }
     public Guid? WarehouseId { get; set; }
     public Guid? DepartmentId { get; set; }
     public string? Search { get; set; }

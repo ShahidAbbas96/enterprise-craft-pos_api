@@ -17,13 +17,19 @@ namespace RetailCommerce.Infrastructure.Sales;
 /// Fixed vs. the prototype: pricing/tax are always read server-side from the product (the
 /// prototype's POS hardcoded a flat 5% tax regardless of each product's own tax rate), and the
 /// order number comes from a real Postgres sequence instead of client-side Math.random().</summary>
-public class SalesService(AppDbContext db, IDocumentNumberService documentNumbers) : ISalesService
+public class SalesService(AppDbContext db, IDocumentNumberService documentNumbers, ICurrentUserService currentUser) : ISalesService
 {
     public async Task<SaleDto> CreateSaleAsync(CreateSaleRequest request, Guid? cashierUserId, CancellationToken ct = default)
     {
-        if (!await db.Warehouses.AnyAsync(w => w.Id == request.WarehouseId, ct))
+        // A terminal-scoped cashier can only ever sell against their own terminal's warehouse —
+        // this overrides/validates request.WarehouseId server-side rather than trusting it, per
+        // the multi-store isolation requirement. Back-office callers (no terminal claim) are
+        // unaffected, but must supply one explicitly since there's no claim to default from.
+        var warehouseId = currentUser.ResolveWarehouseScope(request.WarehouseId)
+            ?? throw new ConflictException("A warehouse must be specified.");
+        if (!await db.Warehouses.AnyAsync(w => w.Id == warehouseId, ct))
         {
-            throw new NotFoundException("Warehouse", request.WarehouseId);
+            throw new NotFoundException("Warehouse", warehouseId);
         }
 
         Customer? customer = null;
@@ -72,13 +78,14 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
         {
             OrderNumber = orderNumber,
             CustomerId = customer?.Id,
-            WarehouseId = request.WarehouseId,
+            WarehouseId = warehouseId,
             Channel = OrderChannel.Pos,
             Status = OrderStatus.Completed,
             PaymentMethod = paymentMethod,
             SalesPersonId = request.SalesPersonId,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
             CreatedByUserId = cashierUserId,
+            TerminalId = currentUser.TerminalId,
         };
 
         decimal subtotal = 0, discountTotal = 0;
@@ -124,7 +131,7 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
             var remaining = lineInput.Quantity;
             var balances = await db.InventoryBalances
                 .Where(i => i.ProductId == product.Id && i.Quantity > 0)
-                .OrderByDescending(i => i.WarehouseId == request.WarehouseId)
+                .OrderByDescending(i => i.WarehouseId == warehouseId)
                 .ThenByDescending(i => i.Quantity)
                 .ToListAsync(ct);
 
@@ -186,7 +193,7 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
     {
         var orders = Query();
 
-        if (query.WarehouseId is { } wh) orders = orders.Where(o => o.WarehouseId == wh);
+        if (currentUser.ResolveWarehouseScope(query.WarehouseId) is { } wh) orders = orders.Where(o => o.WarehouseId == wh);
         if (query.CustomerId is { } cust) orders = orders.Where(o => o.CustomerId == cust);
         if (!string.IsNullOrWhiteSpace(query.Status) && Enum.TryParse<OrderStatus>(query.Status, true, out var status))
         {

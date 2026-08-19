@@ -16,6 +16,7 @@ public class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IE
             ConflictException => (StatusCodes.Status409Conflict, "Conflict"),
             ValidationAppException => (StatusCodes.Status400BadRequest, "Validation failed"),
             AuthenticationFailedException => (StatusCodes.Status401Unauthorized, "Authentication failed"),
+            ForbiddenException => (StatusCodes.Status403Forbidden, "Forbidden"),
             _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred"),
         };
 

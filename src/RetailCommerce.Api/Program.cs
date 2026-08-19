@@ -136,6 +136,25 @@ app.UseHttpsRedirection();
 app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
+
+// A user with 2+ assigned POS terminals gets a deliberately access-restricted token at login
+// (see TokenService's terminal_required claim) — it carries no store_id/terminal_id/warehouse_id
+// at all, so without this gate it would otherwise fall into every service's "no terminal claim =
+// unrestricted back-office" branch and see every store's data until they pick a terminal. This
+// runs after UseAuthentication so User is populated, and blocks every route except /api/auth/*
+// (login/refresh/logout/select-terminal) until POST /api/auth/select-terminal mints a real token.
+app.Use(async (context, next) =>
+{
+    if (context.User.Identity?.IsAuthenticated == true && context.User.HasClaim("terminal_required", "true")
+        && !context.Request.Path.StartsWithSegments("/api/auth"))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { title = "Select a POS terminal first.", status = 403 });
+        return;
+    }
+    await next();
+});
+
 app.MapControllers();
 
 // Serves the Angular production build when its files are published into wwwroot alongside this

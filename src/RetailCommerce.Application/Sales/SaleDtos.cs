@@ -49,7 +49,10 @@ public record CreateSaleLineInput(Guid ProductId, int Quantity);
 
 public record CreateSaleRequest(
     Guid? CustomerId,
-    Guid WarehouseId,
+    /// <summary>Omittable for a terminal-scoped POS caller (filled from its token via
+    /// ICurrentUserService.ResolveWarehouseScope) — required for a back-office caller, which
+    /// gets a ConflictException if it's left null.</summary>
+    Guid? WarehouseId,
     string PaymentMethod,
     decimal DiscountPercent,
     string? DiscountLabel,

@@ -11,7 +11,11 @@ public class TokenService(IOptions<JwtOptions> options) : ITokenService
 {
     private readonly JwtOptions _options = options.Value;
 
-    public (string token, DateTimeOffset expiresAtUtc) GenerateAccessToken(ApplicationUser user, IList<string> roles)
+    public (string token, DateTimeOffset expiresAtUtc) GenerateAccessToken(
+        ApplicationUser user,
+        IList<string> roles,
+        PosTerminalClaims? terminal = null,
+        bool terminalSelectionRequired = false)
     {
         var expires = DateTimeOffset.UtcNow.AddMinutes(_options.AccessTokenMinutes);
 
@@ -26,7 +30,19 @@ public class TokenService(IOptions<JwtOptions> options) : ITokenService
         {
             claims.Add(new Claim("last_name", user.LastName));
         }
-        if (user.StoreId is { } storeId)
+        if (terminal is not null)
+        {
+            claims.Add(new Claim("store_id", terminal.StoreId.ToString()));
+            claims.Add(new Claim("terminal_id", terminal.TerminalId.ToString()));
+            claims.Add(new Claim("warehouse_id", terminal.WarehouseId.ToString()));
+        }
+        else if (terminalSelectionRequired)
+        {
+            // No POS-scoped or back-office access until they pick one — see the startup
+            // middleware in Program.cs that gates every route but /api/auth/* on this claim.
+            claims.Add(new Claim("terminal_required", "true"));
+        }
+        else if (user.StoreId is { } storeId)
         {
             claims.Add(new Claim("store_id", storeId.ToString()));
         }
