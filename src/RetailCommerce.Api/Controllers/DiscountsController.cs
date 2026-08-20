@@ -11,7 +11,7 @@ public class DiscountsController(IDiscountService service) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<DiscountDto>>> List([FromQuery] bool activeOnly, CancellationToken ct) =>
-        Ok(await service.ListAsync(activeOnly, ct));
+        Ok(await service.ListAsync(activeOnly, ct: ct));
 
     [HttpPost]
     [Authorize(Policy = "CatalogManagers")]

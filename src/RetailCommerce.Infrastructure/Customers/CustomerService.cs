@@ -30,6 +30,10 @@ public class CustomerService(AppDbContext db) : ICustomerService
                 EF.Functions.ILike(c.Phone, $"%{term}%") ||
                 (c.Email != null && EF.Functions.ILike(c.Email, $"%{term}%")));
         }
+        if (query.UpdatedSince is { } since)
+        {
+            customers = customers.Where(c => c.CreatedAtUtc > since || (c.UpdatedAtUtc != null && c.UpdatedAtUtc > since));
+        }
 
         var totalCount = await customers.CountAsync(ct);
         var page = await customers

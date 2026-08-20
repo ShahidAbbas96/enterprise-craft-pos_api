@@ -107,6 +107,11 @@ public class ProductListQuery : PagedQuery
     /// terminal-scoped POS caller. When set, TotalStock on each returned product reflects only
     /// this warehouse's own InventoryBalance, not the cross-warehouse aggregate.</summary>
     public Guid? WarehouseId { get; set; }
+
+    /// <summary>Used by the offline-sync delta pull (SyncService.PullAsync) to fetch only
+    /// products created/updated since the terminal's last successful sync — null for every other
+    /// caller, which keeps getting the unfiltered full-catalog behavior unchanged.</summary>
+    public DateTimeOffset? UpdatedSince { get; set; }
 }
 
 /// <summary>One row of Settings → Product Fields. FieldKey is a fixed, backend-owned identifier

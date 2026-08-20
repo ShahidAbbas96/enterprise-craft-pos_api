@@ -57,6 +57,10 @@ public class ProductService(AppDbContext db, IBarcodeService barcodeService, ICu
                 (p.Barcode != null && EF.Functions.ILike(p.Barcode, $"%{term}%")) ||
                 (p.ItemCode != null && EF.Functions.ILike(p.ItemCode, $"%{term}%")));
         }
+        if (query.UpdatedSince is { } since)
+        {
+            products = products.Where(p => p.CreatedAtUtc > since || (p.UpdatedAtUtc != null && p.UpdatedAtUtc > since));
+        }
 
         var totalCount = await products.CountAsync(ct);
 

@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using RetailCommerce.Application.Common;
 using RetailCommerce.Application.Sales;
 using RetailCommerce.Domain.Common;
 using RetailCommerce.Domain.Inventory;
 using RetailCommerce.Domain.Parties;
 using RetailCommerce.Domain.Sales;
+using RetailCommerce.Domain.Sync;
 using RetailCommerce.Infrastructure.Persistence;
 
 namespace RetailCommerce.Infrastructure.Sales;
@@ -21,6 +23,23 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
 {
     public async Task<SaleDto> CreateSaleAsync(CreateSaleRequest request, Guid? cashierUserId, CancellationToken ct = default)
     {
+        // Fast-path idempotency pre-check: a retried submission of an already-processed offline
+        // sale short-circuits here — before burning a document number or redoing validation. This
+        // is an optimization only; the real safety net against a concurrent-retry race is the
+        // filtered unique index on Order.ClientTransactionId caught below via IsDuplicateClientTransaction.
+        if (request.ClientTransactionId is { } precheckKey)
+        {
+            var existingOrderId = await db.Orders
+                .Where(o => o.ClientTransactionId == precheckKey)
+                .Select(o => (Guid?)o.Id)
+                .FirstOrDefaultAsync(ct);
+            if (existingOrderId is { } duplicateOrderId)
+            {
+                await LogSyncAsync(duplicateOrderId, precheckKey, SyncLogStatus.Duplicate, null, ct);
+                return await GetAsync(duplicateOrderId, ct);
+            }
+        }
+
         // A terminal-scoped cashier can only ever sell against their own terminal's warehouse —
         // this overrides/validates request.WarehouseId server-side rather than trusting it, per
         // the multi-store isolation requirement. Back-office callers (no terminal claim) are
@@ -86,10 +105,16 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
             CreatedByUserId = cashierUserId,
             TerminalId = currentUser.TerminalId,
+            ClientTransactionId = request.ClientTransactionId,
+            CapturedOffline = request.CapturedOffline,
         };
 
         decimal subtotal = 0, discountTotal = 0;
         var appliedDiscountLabels = new List<string>();
+        // Set when an offline-captured sale is allowed to drive a warehouse balance negative
+        // (see the deduction loop below) — downgrades this order's SyncLog entry from Success to
+        // Warning so back-office can review it, per requirement #6 ("do not silently overwrite").
+        var wentNegative = false;
 
         foreach (var lineInput in request.Lines)
         {
@@ -98,7 +123,7 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
             var totalAvailable = await db.InventoryBalances
                 .Where(i => i.ProductId == product.Id)
                 .SumAsync(i => (int?)i.Quantity, ct) ?? 0;
-            if (totalAvailable < lineInput.Quantity)
+            if (totalAvailable < lineInput.Quantity && !request.CapturedOffline)
             {
                 throw new ConflictException($"Insufficient stock for {product.Name}. Available: {totalAvailable}, requested: {lineInput.Quantity}.");
             }
@@ -153,11 +178,40 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
                 });
             }
 
-            if (remaining > 0)
+            if (remaining > 0 && !request.CapturedOffline)
             {
                 // Stock moved between the availability check above and here (concurrent sale) —
                 // fail the whole transaction loudly rather than oversell.
                 throw new ConflictException($"Insufficient stock for {product.Name} — please refresh and try again.");
+            }
+
+            if (remaining > 0)
+            {
+                // Offline-captured sale: it already physically happened at the till, so it can't
+                // be rejected after the fact. Drive the selling warehouse's own balance negative
+                // for the shortfall rather than throwing — flagged via wentNegative so this shows
+                // up as a Warning (not a silent Success) in the sync audit log.
+                var sellingBalance = await db.InventoryBalances
+                    .FirstOrDefaultAsync(i => i.ProductId == product.Id && i.WarehouseId == warehouseId, ct);
+                if (sellingBalance is null)
+                {
+                    sellingBalance = new InventoryBalance { ProductId = product.Id, WarehouseId = warehouseId, Quantity = 0 };
+                    db.InventoryBalances.Add(sellingBalance);
+                }
+                sellingBalance.Quantity -= remaining;
+
+                db.StockMovements.Add(new StockMovement
+                {
+                    ProductId = product.Id,
+                    WarehouseId = warehouseId,
+                    QuantityDelta = -remaining,
+                    Kind = StockMovementKind.Sale,
+                    Reference = orderNumber,
+                    PerformedByUserId = cashierUserId,
+                });
+
+                wentNegative = true;
+                remaining = 0;
             }
         }
 
@@ -176,10 +230,64 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
             customer.LoyaltyPoints += (int)Math.Floor(order.Total);
         }
 
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
+        if (request.ClientTransactionId is not null)
+        {
+            db.SyncLogs.Add(new SyncLog
+            {
+                TerminalId = currentUser.TerminalId,
+                Direction = SyncDirection.Push,
+                EntityType = "Order",
+                EntityId = order.Id,
+                ClientTransactionId = request.ClientTransactionId,
+                Status = wentNegative ? SyncLogStatus.Warning : SyncLogStatus.Success,
+                ErrorMessage = wentNegative ? $"Offline sale {orderNumber} drove one or more product balances negative at this warehouse; review and reconcile stock." : null,
+            });
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        }
+        catch (DbUpdateException ex) when (IsClientTransactionIdConflict(ex))
+        {
+            // The real safety net: a concurrent retry of the same offline sale raced this one
+            // past the fast-path pre-check above and both attempted to insert the same
+            // ClientTransactionId — the database's filtered unique index is what actually
+            // prevents the duplicate. Roll back this attempt entirely and return whichever one
+            // the database accepted.
+            await transaction.RollbackAsync(ct);
+            // The failed order/lines/payments/movements/SyncLog from this attempt are still
+            // tracked as Added — clear them so the LogSyncAsync/GetAsync calls below don't try
+            // to re-insert (and re-fail on) the same rows.
+            db.ChangeTracker.Clear();
+            var winningOrderId = await db.Orders
+                .Where(o => o.ClientTransactionId == request.ClientTransactionId)
+                .Select(o => o.Id)
+                .FirstAsync(ct);
+            await LogSyncAsync(winningOrderId, request.ClientTransactionId, SyncLogStatus.Duplicate, null, ct);
+            return await GetAsync(winningOrderId, ct);
+        }
 
         return await GetAsync(order.Id, ct);
+    }
+
+    private static bool IsClientTransactionIdConflict(DbUpdateException ex) =>
+        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "IX_Orders_ClientTransactionId" };
+
+    private async Task LogSyncAsync(Guid orderId, Guid? clientTransactionId, SyncLogStatus status, string? errorMessage, CancellationToken ct)
+    {
+        db.SyncLogs.Add(new SyncLog
+        {
+            TerminalId = currentUser.TerminalId,
+            Direction = SyncDirection.Push,
+            EntityType = "Order",
+            EntityId = orderId,
+            ClientTransactionId = clientTransactionId,
+            Status = status,
+            ErrorMessage = errorMessage,
+        });
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<SaleDto> GetAsync(Guid id, CancellationToken ct = default)
@@ -304,5 +412,7 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
             o.Warehouse.Store.Address, o.Warehouse.Store.Phone, o.Warehouse.Store.Email,
             o.Warehouse.Store.Ntn, o.Warehouse.Store.Strn, o.Warehouse.Store.ReceiptFooterText),
         o.Lines.Select(l => new SaleLineDto(l.ProductId, l.ProductName, l.Quantity, l.UnitPrice, l.TaxRatePercent, l.DiscountPercent, l.LineTotal)).ToList(),
-        o.CreatedAtUtc);
+        o.CreatedAtUtc,
+        o.ClientTransactionId,
+        o.CapturedOffline);
 }

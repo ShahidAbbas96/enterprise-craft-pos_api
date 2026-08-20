@@ -22,6 +22,7 @@ using RetailCommerce.Application.Settings;
 using RetailCommerce.Application.Shifts;
 using RetailCommerce.Application.Stores;
 using RetailCommerce.Application.Suppliers;
+using RetailCommerce.Application.Sync;
 using RetailCommerce.Application.Taxonomy;
 using RetailCommerce.Application.TaxonomyAdmin;
 using RetailCommerce.Application.UserAdmin;
@@ -46,6 +47,7 @@ using RetailCommerce.Infrastructure.Settings;
 using RetailCommerce.Infrastructure.Shifts;
 using RetailCommerce.Infrastructure.Stores;
 using RetailCommerce.Infrastructure.Suppliers;
+using RetailCommerce.Infrastructure.Sync;
 using RetailCommerce.Infrastructure.Taxonomy;
 using RetailCommerce.Infrastructure.TaxonomyAdmin;
 using RetailCommerce.Infrastructure.UserAdmin;
@@ -103,6 +105,7 @@ public static class DependencyInjection
         services.AddScoped<ICurrencySettingsService, CurrencySettingsService>();
         services.AddScoped<IPosSettingsService, PosSettingsService>();
         services.AddScoped<IPosTerminalService, PosTerminalService>();
+        services.AddScoped<ISyncService, SyncService>();
 
         return services;
     }

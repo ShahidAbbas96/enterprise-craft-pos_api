@@ -39,6 +39,21 @@ public class Order : BaseEntity
 
     public Guid? CreatedByUserId { get; set; }
 
+    /// <summary>Client-generated (crypto.randomUUID()) idempotency key for offline-first POS
+    /// sync — a retried submission of the same queued sale (e.g. after a lost response) carries
+    /// the same value, letting SalesService detect and safely no-op the duplicate instead of
+    /// double-selling. Null for sales that were never queued offline (most online sales today
+    /// still go through the outbox too, per the POS rewiring, but the field stays optional so
+    /// any future direct/admin sale-creation path isn't forced to supply one).</summary>
+    public Guid? ClientTransactionId { get; set; }
+
+    /// <summary>True only when this sale was rung up while the POS was offline and is now
+    /// arriving via sync — such sales are allowed to drive stock negative (the sale already
+    /// physically happened; rejecting it after the fact isn't a valid business action) rather
+    /// than throwing ConflictException, with the discrepancy logged to SyncLog for review. Live
+    /// online sales keep the existing strict oversell check unchanged.</summary>
+    public bool CapturedOffline { get; set; }
+
     public ICollection<OrderLine> Lines { get; set; } = new List<OrderLine>();
     public ICollection<Payment> Payments { get; set; } = new List<Payment>();
 }

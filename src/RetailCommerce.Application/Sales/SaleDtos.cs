@@ -43,7 +43,11 @@ public record SaleDto(
     string? CashierName,
     ReceiptStoreInfoDto? Store,
     IReadOnlyList<SaleLineDto> Lines,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    /// <summary>Echoes the request's idempotency key (when it carried one) so an offline POS's
+    /// sync engine can positively match this response back to the outbox row that sent it.</summary>
+    Guid? ClientTransactionId,
+    bool CapturedOffline);
 
 public record CreateSaleLineInput(Guid ProductId, int Quantity);
 
@@ -58,7 +62,17 @@ public record CreateSaleRequest(
     string? DiscountLabel,
     Guid? SalesPersonId,
     string? Notes,
-    IReadOnlyList<CreateSaleLineInput> Lines);
+    IReadOnlyList<CreateSaleLineInput> Lines,
+    /// <summary>Client-generated (crypto.randomUUID()) idempotency key from the POS offline
+    /// outbox. Null for callers that never go through the outbox (e.g. today's online-only admin
+    /// tooling, if any exists) — CreateSaleAsync only enforces idempotency when this is set.</summary>
+    Guid? ClientTransactionId = null,
+    /// <summary>True when the POS was offline at the moment this sale was rung up (set by the
+    /// client's ConnectivityService at enqueue time, not at retry/drain time) — relaxes the
+    /// stock check to allow negative inventory instead of rejecting a sale that already
+    /// physically happened. Defaults to false so every other caller keeps today's strict
+    /// behavior unchanged.</summary>
+    bool CapturedOffline = false);
 
 public class SaleListQuery : PagedQuery
 {

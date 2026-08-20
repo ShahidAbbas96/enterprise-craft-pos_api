@@ -9,10 +9,11 @@ namespace RetailCommerce.Infrastructure.Discounts;
 
 public class DiscountService(AppDbContext db) : IDiscountService
 {
-    public async Task<IReadOnlyList<DiscountDto>> ListAsync(bool activeOnly, CancellationToken ct = default)
+    public async Task<IReadOnlyList<DiscountDto>> ListAsync(bool activeOnly, DateTimeOffset? updatedSince = null, CancellationToken ct = default)
     {
         var query = Query();
         if (activeOnly) query = query.Where(d => d.IsActive);
+        if (updatedSince is { } since) query = query.Where(d => d.CreatedAtUtc > since || (d.UpdatedAtUtc != null && d.UpdatedAtUtc > since));
         var entities = await query.OrderBy(d => d.Name).ToListAsync(ct);
         return entities.Select(ToDto).ToList();
     }

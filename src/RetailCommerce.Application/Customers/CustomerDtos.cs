@@ -44,4 +44,8 @@ public class CustomerListQuery : PagedQuery
 {
     public string? Type { get; set; }
     public string? Status { get; set; }
+
+    /// <summary>Used by the offline-sync delta pull (SyncService.PullAsync) — null for every
+    /// other caller, which keeps the unfiltered full-list behavior unchanged.</summary>
+    public DateTimeOffset? UpdatedSince { get; set; }
 }

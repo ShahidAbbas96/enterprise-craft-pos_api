@@ -15,6 +15,13 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         // against a Postgres "value too long" error, not the actual expected length.
         b.Property(x => x.OrderNumber).HasMaxLength(100).IsRequired();
         b.HasIndex(x => x.OrderNumber).IsUnique();
+        // Offline-sync idempotency key — a retried submission of the same queued sale carries
+        // the same ClientTransactionId, so this index is the actual concurrency-safe guarantee
+        // against double-selling (SalesService's pre-check is just a fast-path; this catches the
+        // race under concurrent retries). Flat, not compounded with TerminalId, since a
+        // terminal's warehouse could be reassigned between when a sale is queued and when it
+        // finally syncs — the client-generated GUID is already collision-safe on its own.
+        b.HasIndex(x => x.ClientTransactionId).IsUnique().HasFilter("\"ClientTransactionId\" IS NOT NULL");
 
         b.Property(x => x.Subtotal).HasPrecision(18, 2);
         b.Property(x => x.DiscountAmount).HasPrecision(18, 2);

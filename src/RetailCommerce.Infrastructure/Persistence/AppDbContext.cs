@@ -8,6 +8,7 @@ using RetailCommerce.Domain.Parties;
 using RetailCommerce.Domain.Purchasing;
 using RetailCommerce.Domain.Sales;
 using RetailCommerce.Domain.Shifts;
+using RetailCommerce.Domain.Sync;
 using RetailCommerce.Domain.Taxonomy;
 using RetailCommerce.Infrastructure.Identity;
 
@@ -71,6 +72,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, 
 
     // Identity
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
+    // Sync
+    public DbSet<SyncLog> SyncLogs => Set<SyncLog>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
