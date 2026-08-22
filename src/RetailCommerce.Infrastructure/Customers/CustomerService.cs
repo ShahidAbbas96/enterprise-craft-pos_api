@@ -3,11 +3,13 @@ using RetailCommerce.Application.Common;
 using RetailCommerce.Application.Customers;
 using RetailCommerce.Domain.Common;
 using RetailCommerce.Domain.Parties;
+using RetailCommerce.Domain.Sync;
+using RetailCommerce.Infrastructure.Common;
 using RetailCommerce.Infrastructure.Persistence;
 
 namespace RetailCommerce.Infrastructure.Customers;
 
-public class CustomerService(AppDbContext db) : ICustomerService
+public class CustomerService(AppDbContext db, ICurrentUserService currentUser) : ICustomerService
 {
     public async Task<PagedResult<CustomerDto>> ListAsync(CustomerListQuery query, CancellationToken ct = default)
     {
@@ -54,14 +56,68 @@ public class CustomerService(AppDbContext db) : ICustomerService
 
     public async Task<CustomerDto> CreateAsync(UpsertCustomerRequest request, CancellationToken ct = default)
     {
+        // Fast-path pre-check first — before EnsurePhoneUniqueAsync, so a retried offline
+        // "quick add customer" never trips the phone-uniqueness rule against its own earlier
+        // attempt. Mirrors SalesService.CreateSaleAsync's idempotency pattern exactly.
+        if (request.ClientTransactionId is { } precheckKey)
+        {
+            var existing = await db.Customers.FirstOrDefaultAsync(c => c.ClientTransactionId == precheckKey, ct);
+            if (existing is not null)
+            {
+                await LogSyncAsync(existing.Id, precheckKey, SyncLogStatus.Duplicate, null, ct);
+                return ToDto(existing);
+            }
+        }
+
         await EnsurePhoneUniqueAsync(request.Phone, null, ct);
 
-        var customer = new Customer { Id = Guid.NewGuid() };
+        var customer = new Customer { Id = Guid.NewGuid(), ClientTransactionId = request.ClientTransactionId };
         MapRequestToEntity(request, customer);
         customer.Balance = request.OpeningBalance;
         db.Customers.Add(customer);
-        await db.SaveChangesAsync(ct);
+
+        if (request.ClientTransactionId is not null)
+        {
+            db.SyncLogs.Add(new SyncLog
+            {
+                TerminalId = currentUser.TerminalId,
+                Direction = SyncDirection.Push,
+                EntityType = "Customer",
+                EntityId = customer.Id,
+                ClientTransactionId = request.ClientTransactionId,
+                Status = SyncLogStatus.Success,
+            });
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.IsUniqueViolationOn("IX_Customers_ClientTransactionId"))
+        {
+            // The real safety net: a concurrent retry raced this one past the pre-check above.
+            db.ChangeTracker.Clear();
+            var winner = await db.Customers.FirstAsync(c => c.ClientTransactionId == request.ClientTransactionId, ct);
+            await LogSyncAsync(winner.Id, request.ClientTransactionId, SyncLogStatus.Duplicate, null, ct);
+            return ToDto(winner);
+        }
+
         return ToDto(customer);
+    }
+
+    private async Task LogSyncAsync(Guid customerId, Guid? clientTransactionId, SyncLogStatus status, string? errorMessage, CancellationToken ct)
+    {
+        db.SyncLogs.Add(new SyncLog
+        {
+            TerminalId = currentUser.TerminalId,
+            Direction = SyncDirection.Push,
+            EntityType = "Customer",
+            EntityId = customerId,
+            ClientTransactionId = clientTransactionId,
+            Status = status,
+            ErrorMessage = errorMessage,
+        });
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<CustomerDto> UpdateAsync(Guid id, UpsertCustomerRequest request, CancellationToken ct = default)
@@ -108,5 +164,5 @@ public class CustomerService(AppDbContext db) : ICustomerService
         c.Id, c.FirstName, c.LastName, c.FullName, c.Phone, c.Email, c.Type.ToString(),
         c.Address, c.City, c.Country, c.DateOfBirth, c.TaxNumber,
         c.CreditLimit, c.OpeningBalance, c.Balance, c.LoyaltyPoints, c.OrdersCount,
-        c.Notes, c.Status.ToString(), c.CreatedAtUtc);
+        c.Notes, c.Status.ToString(), c.CreatedAtUtc, c.ClientTransactionId);
 }

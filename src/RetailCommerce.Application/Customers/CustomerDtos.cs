@@ -22,7 +22,8 @@ public record CustomerDto(
     int OrdersCount,
     string? Notes,
     string Status,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    Guid? ClientTransactionId);
 
 public record UpsertCustomerRequest(
     string FirstName,
@@ -38,7 +39,11 @@ public record UpsertCustomerRequest(
     decimal CreditLimit,
     decimal OpeningBalance,
     string? Notes,
-    string Status);
+    string Status,
+    /// <summary>Client-generated idempotency key from the POS offline outbox's quick "add
+    /// customer" flow. Ignored on Update (a customer edit is never offline-queued today) — only
+    /// CreateAsync uses it.</summary>
+    Guid? ClientTransactionId = null);
 
 public class CustomerListQuery : PagedQuery
 {

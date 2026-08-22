@@ -4,6 +4,8 @@ using RetailCommerce.Application.Returns;
 using RetailCommerce.Domain.Common;
 using RetailCommerce.Domain.Inventory;
 using RetailCommerce.Domain.Sales;
+using RetailCommerce.Domain.Sync;
+using RetailCommerce.Infrastructure.Common;
 using RetailCommerce.Infrastructure.Persistence;
 
 namespace RetailCommerce.Infrastructure.Returns;
@@ -37,7 +39,7 @@ public class ReturnsService(AppDbContext db, IDocumentNumberService documentNumb
         var lines = order.Lines.Select(l =>
         {
             var alreadyReturned = returnedByLine.GetValueOrDefault(l.Id);
-            return new ReturnableLineDto(l.Id, l.ProductId, l.ProductName, l.Quantity, alreadyReturned, l.Quantity - alreadyReturned, l.UnitPrice);
+            return new ReturnableLineDto(l.Id, l.ProductId, l.ProductName, l.Quantity, alreadyReturned, l.Quantity - alreadyReturned, l.UnitPrice, l.DiscountPercent);
         }).ToList();
 
         return new ReturnableSaleDto(
@@ -48,6 +50,23 @@ public class ReturnsService(AppDbContext db, IDocumentNumberService documentNumb
 
     public async Task<ReturnDto> CreateReturnAsync(CreateReturnRequest request, Guid? userId, CancellationToken ct = default)
     {
+        // Fast-path idempotency pre-check — mirrors SalesService.CreateSaleAsync exactly: a
+        // retried submission of an already-processed offline return short-circuits here, before
+        // redoing stock/quantity validation. The filtered unique index on Return.ClientTransactionId
+        // (caught below) is the real concurrency-safe guarantee against a duplicate under a race.
+        if (request.ClientTransactionId is { } precheckKey)
+        {
+            var existingReturnId = await db.Returns
+                .Where(r => r.ClientTransactionId == precheckKey)
+                .Select(r => (Guid?)r.Id)
+                .FirstOrDefaultAsync(ct);
+            if (existingReturnId is { } duplicateReturnId)
+            {
+                await LogSyncAsync(duplicateReturnId, precheckKey, SyncLogStatus.Duplicate, null, ct);
+                return await GetReturnDtoAsync(duplicateReturnId, ct);
+            }
+        }
+
         var order = await db.Orders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == request.OrderId, ct)
                     ?? throw new NotFoundException("Order", request.OrderId);
         currentUser.ResolveWarehouseScope(order.WarehouseId);
@@ -79,6 +98,7 @@ public class ReturnsService(AppDbContext db, IDocumentNumberService documentNumb
             CustomerId = order.CustomerId,
             Reason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim(),
             CreatedByUserId = userId,
+            ClientTransactionId = request.ClientTransactionId,
         };
 
         decimal total = 0;
@@ -143,10 +163,55 @@ public class ReturnsService(AppDbContext db, IDocumentNumberService documentNumb
             order.Status = OrderStatus.Refunded;
         }
 
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
+        if (request.ClientTransactionId is not null)
+        {
+            db.SyncLogs.Add(new SyncLog
+            {
+                TerminalId = currentUser.TerminalId,
+                Direction = SyncDirection.Push,
+                EntityType = "Return",
+                EntityId = returnOrder.Id,
+                ClientTransactionId = request.ClientTransactionId,
+                Status = SyncLogStatus.Success,
+            });
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.IsUniqueViolationOn("IX_Returns_ClientTransactionId"))
+        {
+            // Real safety net: a concurrent retry of the same offline return raced this one past
+            // the fast-path pre-check above — roll back this attempt and return whichever one the
+            // database accepted, exactly like SalesService.CreateSaleAsync.
+            await transaction.RollbackAsync(ct);
+            db.ChangeTracker.Clear();
+            var winningReturnId = await db.Returns
+                .Where(r => r.ClientTransactionId == request.ClientTransactionId)
+                .Select(r => r.Id)
+                .FirstAsync(ct);
+            await LogSyncAsync(winningReturnId, request.ClientTransactionId, SyncLogStatus.Duplicate, null, ct);
+            return await GetReturnDtoAsync(winningReturnId, ct);
+        }
 
         return await GetReturnDtoAsync(returnOrder.Id, ct);
+    }
+
+    private async Task LogSyncAsync(Guid returnId, Guid? clientTransactionId, SyncLogStatus status, string? errorMessage, CancellationToken ct)
+    {
+        db.SyncLogs.Add(new SyncLog
+        {
+            TerminalId = currentUser.TerminalId,
+            Direction = SyncDirection.Push,
+            EntityType = "Return",
+            EntityId = returnId,
+            ClientTransactionId = clientTransactionId,
+            Status = status,
+            ErrorMessage = errorMessage,
+        });
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<PagedResult<ReturnDto>> ListAsync(ReturnListQuery query, CancellationToken ct = default)
@@ -204,5 +269,6 @@ public class ReturnsService(AppDbContext db, IDocumentNumberService documentNumb
         r.Reason, r.Total,
         r.CreatedByUserId.HasValue && names.TryGetValue(r.CreatedByUserId.Value, out var name) ? name : null,
         r.Lines.Select(l => new ReturnLineDto(l.OrderLineId, l.ProductId, l.ProductName, l.Quantity, l.UnitPrice, l.LineTotal)).ToList(),
-        r.CreatedAtUtc);
+        r.CreatedAtUtc,
+        r.ClientTransactionId);
 }

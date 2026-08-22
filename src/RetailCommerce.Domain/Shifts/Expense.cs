@@ -14,4 +14,8 @@ public class Expense : BaseEntity
     public string? Note { get; set; }
 
     public Guid? CreatedByUserId { get; set; }
+
+    /// <summary>Client-generated idempotency key from the POS offline outbox — same pattern as
+    /// Order.ClientTransactionId. Null for an expense added directly online.</summary>
+    public Guid? ClientTransactionId { get; set; }
 }

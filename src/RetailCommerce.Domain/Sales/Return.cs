@@ -24,5 +24,10 @@ public class Return : BaseEntity
 
     public Guid? CreatedByUserId { get; set; }
 
+    /// <summary>Client-generated idempotency key from the POS offline outbox — same pattern as
+    /// Order.ClientTransactionId/Customer.ClientTransactionId. Null for a return created directly
+    /// online (e.g. today's live Returns screen, which has no outbox).</summary>
+    public Guid? ClientTransactionId { get; set; }
+
     public ICollection<ReturnLine> Lines { get; set; } = new List<ReturnLine>();
 }

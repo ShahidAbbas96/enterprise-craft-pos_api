@@ -3,6 +3,11 @@ using RetailCommerce.Application.Common;
 namespace RetailCommerce.Application.Sales;
 
 public record SaleLineDto(
+    /// <summary>The real server-assigned OrderLine.Id — added so an offline POS's local "recent
+    /// orders" cache (fed by GET /api/sync/orders) can reference a specific line for a Return
+    /// without a second round trip, exactly like ReturnableLineDto already does for the online
+    /// Returns screen.</summary>
+    Guid Id,
     Guid ProductId,
     string ProductName,
     int Quantity,

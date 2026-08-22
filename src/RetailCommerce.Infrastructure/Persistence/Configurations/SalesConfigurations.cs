@@ -92,6 +92,10 @@ public class ReturnConfiguration : IEntityTypeConfiguration<Return>
         b.HasIndex(x => x.ReturnNumber).IsUnique();
         b.Property(x => x.Reason).HasMaxLength(300);
         b.Property(x => x.Total).HasPrecision(18, 2);
+        // Same pattern as Order.ClientTransactionId — the real concurrency-safe guarantee against
+        // a duplicate return under a concurrent retry (ReturnsService's pre-check is just the
+        // fast-path optimization).
+        b.HasIndex(x => x.ClientTransactionId).IsUnique().HasFilter("\"ClientTransactionId\" IS NOT NULL");
 
         b.HasOne(x => x.Order).WithMany().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne(x => x.Warehouse).WithMany().HasForeignKey(x => x.WarehouseId).OnDelete(DeleteBehavior.Restrict);

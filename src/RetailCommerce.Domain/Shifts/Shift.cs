@@ -25,5 +25,15 @@ public class Shift : BaseEntity
     public decimal TotalExpenses { get; set; }
     public decimal NetTotal { get; set; }
 
+    /// <summary>Client-generated idempotency key from the POS offline outbox for the Open action —
+    /// same pattern as Order.ClientTransactionId. Null for a shift opened directly online.</summary>
+    public Guid? ClientTransactionId { get; set; }
+
+    /// <summary>Separate idempotency key for the Close action — a close is an UPDATE to this same
+    /// row rather than an INSERT, so it can't reuse the same unique-index trick as Open/ClientTransactionId;
+    /// CloseShiftAsync instead compares this against an incoming retry's key directly (see its
+    /// doc comment) to tell "already-closed, matching retry" apart from a genuine conflict.</summary>
+    public Guid? CloseClientTransactionId { get; set; }
+
     public ICollection<Expense> Expenses { get; set; } = new List<Expense>();
 }

@@ -9,7 +9,12 @@ public record ReturnableLineDto(
     int QuantitySold,
     int QuantityAlreadyReturned,
     int QuantityReturnable,
-    decimal UnitPrice);
+    decimal UnitPrice,
+    /// <summary>The original sale line's own DiscountPercent — needed client-side so an offline
+    /// POS can compute the exact refund (lineSubtotal - round(lineSubtotal * DiscountPercent/100,
+    /// 2), mirroring CreateReturnAsync's own formula) for its provisional receipt before the real
+    /// return has synced.</summary>
+    decimal DiscountPercent);
 
 public record ReturnableSaleDto(
     Guid OrderId,
@@ -22,7 +27,14 @@ public record ReturnableSaleDto(
 
 public record CreateReturnLineInput(Guid OrderLineId, int Quantity);
 
-public record CreateReturnRequest(Guid OrderId, string? Reason, IReadOnlyList<CreateReturnLineInput> Lines);
+public record CreateReturnRequest(
+    Guid OrderId,
+    string? Reason,
+    IReadOnlyList<CreateReturnLineInput> Lines,
+    /// <summary>Client-generated (crypto.randomUUID()) idempotency key from the POS offline
+    /// outbox — same pattern as CreateSaleRequest.ClientTransactionId. Null for a return created
+    /// directly online (today's live Returns screen has no outbox), which skips idempotency.</summary>
+    Guid? ClientTransactionId = null);
 
 public record ReturnLineDto(Guid OrderLineId, Guid ProductId, string ProductName, int Quantity, decimal UnitPrice, decimal LineTotal);
 
@@ -38,7 +50,8 @@ public record ReturnDto(
     decimal Total,
     string? CreatedByName,
     IReadOnlyList<ReturnLineDto> Lines,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    Guid? ClientTransactionId);
 
 public class ReturnListQuery : PagedQuery
 {

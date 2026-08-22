@@ -4,12 +4,14 @@ using RetailCommerce.Application.Customers;
 using RetailCommerce.Application.Discounts;
 using RetailCommerce.Application.Employees;
 using RetailCommerce.Application.Products;
+using RetailCommerce.Application.Sales;
 using RetailCommerce.Application.Settings;
 using RetailCommerce.Application.Shifts;
 using RetailCommerce.Application.Sync;
 using RetailCommerce.Application.Taxonomy;
 using RetailCommerce.Domain.Sync;
 using RetailCommerce.Infrastructure.Persistence;
+using RetailCommerce.Infrastructure.Sales;
 
 namespace RetailCommerce.Infrastructure.Sync;
 
@@ -120,6 +122,54 @@ public class SyncService(
             query.Page++;
         }
         return results;
+    }
+
+    /// <summary>Reuses SalesService's own Query()/ToDto (widened to internal for exactly this
+    /// purpose) rather than re-implementing the Include chain and mapping — the only new work
+    /// here is the ReturnPolicyDays window and attaching each line's ReturnedQuantity, computed
+    /// the same way ReturnsService.LookupAsync already does it for the online Returns screen.
+    /// ReturnedQuantity can go stale on a delta pull for an order that was only partially
+    /// returned after that order's own row was last synced (a ReturnLine insert doesn't touch
+    /// Order.UpdatedAtUtc) — acceptable for now since offline Returns (Phase 2c) only targets
+    /// already-synced orders and a subsequent full resync corrects it; documented gap, not a bug.</summary>
+    public async Task<IReadOnlyList<OrderSyncDto>> PullOrdersAsync(DateTimeOffset? since, CancellationToken ct = default)
+    {
+        var warehouseId = currentUser.ResolveWarehouseScope((Guid?)null)
+            ?? throw new ConflictException("A POS terminal must be selected to synchronize.");
+
+        var posSettings = await posSettingsService.GetAsync(ct);
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-Math.Max(1, posSettings.ReturnPolicyDays));
+
+        var query = SalesService.Query(db).Where(o => o.WarehouseId == warehouseId && o.CreatedAtUtc >= cutoff);
+        if (since is { } s)
+        {
+            query = query.Where(o => o.CreatedAtUtc > s || (o.UpdatedAtUtc != null && o.UpdatedAtUtc > s));
+        }
+
+        var orders = await query.OrderByDescending(o => o.CreatedAtUtc).ToListAsync(ct);
+        var cashierNames = await SalesService.GetCashierNamesAsync(db, orders, ct);
+
+        var lineIds = orders.SelectMany(o => o.Lines.Select(l => l.Id)).ToList();
+        var returnedByLine = await db.ReturnLines
+            .Where(rl => lineIds.Contains(rl.OrderLineId))
+            .GroupBy(rl => rl.OrderLineId)
+            .Select(g => new { OrderLineId = g.Key, Quantity = g.Sum(rl => rl.Quantity) })
+            .ToDictionaryAsync(x => x.OrderLineId, x => x.Quantity, ct);
+
+        return orders.Select(o =>
+        {
+            var dto = SalesService.ToDto(o, cashierNames);
+            var lines = dto.Lines
+                .Select(l => new OrderSyncLineDto(
+                    l.Id, l.ProductId, l.ProductName, l.Quantity, l.UnitPrice, l.TaxRatePercent, l.DiscountPercent, l.LineTotal,
+                    returnedByLine.GetValueOrDefault(l.Id)))
+                .ToList();
+            return new OrderSyncDto(
+                dto.Id, dto.OrderNumber, dto.CustomerId, dto.CustomerName, dto.WarehouseId, dto.WarehouseName,
+                dto.Channel, dto.Status, dto.Subtotal, dto.DiscountAmount, dto.TaxAmount, dto.Total, dto.DiscountLabel,
+                dto.SalesPersonId, dto.SalesPersonName, dto.PaymentMethod, dto.Notes, dto.CashierName, dto.Store,
+                lines, dto.CreatedAtUtc, dto.ClientTransactionId, dto.CapturedOffline);
+        }).ToList();
     }
 
     public async Task<PagedResult<SyncLogDto>> ListLogsAsync(SyncLogListQuery query, CancellationToken ct = default)

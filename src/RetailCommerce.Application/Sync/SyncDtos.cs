@@ -2,6 +2,7 @@ using RetailCommerce.Application.Common;
 using RetailCommerce.Application.Customers;
 using RetailCommerce.Application.Discounts;
 using RetailCommerce.Application.Products;
+using RetailCommerce.Application.Sales;
 using RetailCommerce.Application.Settings;
 using RetailCommerce.Application.Taxonomy;
 using RetailCommerce.Application.TaxonomyAdmin;
@@ -25,6 +26,51 @@ public record SyncSnapshotDto(
     PosSettingsDto PosSettings,
     BarcodeSettingsDto BarcodeSettings,
     CurrencySettingsDto CurrencySettings);
+
+/// <summary>SaleLineDto plus how much of that line has already been returned — carried
+/// separately from SaleLineDto itself (rather than adding ReturnedQuantity there) since every
+/// other Sale endpoint has no use for it and would otherwise pay for a ReturnLines query it never
+/// needs.</summary>
+public record OrderSyncLineDto(
+    Guid Id,
+    Guid ProductId,
+    string ProductName,
+    int Quantity,
+    decimal UnitPrice,
+    decimal TaxRatePercent,
+    decimal DiscountPercent,
+    decimal LineTotal,
+    int ReturnedQuantity);
+
+/// <summary>Feeds an offline POS terminal's local "recent orders" cache (GET /api/sync/orders) —
+/// same shape as SaleDto, just with OrderSyncLineDto lines so Search Slip/POS Reports/Returns can
+/// all work from this one cached record without a live call. Scoped to the caller's own resolved
+/// warehouse and windowed to roughly PosSettings.ReturnPolicyDays, matching how long a sale stays
+/// return-eligible anyway.</summary>
+public record OrderSyncDto(
+    Guid Id,
+    string OrderNumber,
+    Guid? CustomerId,
+    string? CustomerName,
+    Guid WarehouseId,
+    string WarehouseName,
+    string Channel,
+    string Status,
+    decimal Subtotal,
+    decimal DiscountAmount,
+    decimal TaxAmount,
+    decimal Total,
+    string? DiscountLabel,
+    Guid? SalesPersonId,
+    string? SalesPersonName,
+    string PaymentMethod,
+    string? Notes,
+    string? CashierName,
+    ReceiptStoreInfoDto? Store,
+    IReadOnlyList<OrderSyncLineDto> Lines,
+    DateTimeOffset CreatedAtUtc,
+    Guid? ClientTransactionId,
+    bool CapturedOffline);
 
 public record SyncLogDto(
     Guid Id,

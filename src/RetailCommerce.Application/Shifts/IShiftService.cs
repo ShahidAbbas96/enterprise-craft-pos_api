@@ -11,7 +11,7 @@ public interface IShiftService
     Task<ShiftDto> OpenShiftAsync(OpenShiftRequest request, Guid? userId, CancellationToken ct = default);
     Task<ShiftSummaryDto> GetSummaryAsync(Guid shiftId, CancellationToken ct = default);
     Task<ExpenseDto> AddExpenseAsync(Guid shiftId, AddExpenseRequest request, Guid? userId, CancellationToken ct = default);
-    Task<ShiftDto> CloseShiftAsync(Guid shiftId, Guid? userId, CancellationToken ct = default);
+    Task<ShiftDto> CloseShiftAsync(Guid shiftId, CloseShiftRequest request, Guid? userId, CancellationToken ct = default);
     Task<ShiftDto> GetAsync(Guid id, CancellationToken ct = default);
     Task<PagedResult<ShiftDto>> ListAsync(ShiftListQuery query, CancellationToken ct = default);
 }

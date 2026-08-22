@@ -35,6 +35,9 @@ public class ShiftConfiguration : IEntityTypeConfiguration<Shift>
             .IsUnique()
             .HasFilter("\"Status\" = 'Open'")
             .HasDatabaseName("IX_Shifts_WarehouseId_OpenOnly");
+        // Real concurrency-safe guarantee against a duplicate Open under a race — same pattern as
+        // Order.ClientTransactionId.
+        b.HasIndex(x => x.ClientTransactionId).IsUnique().HasFilter("\"ClientTransactionId\" IS NOT NULL");
     }
 }
 
@@ -45,6 +48,7 @@ public class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
         b.ToTable("Expenses");
         b.Property(x => x.Amount).HasPrecision(18, 2);
         b.Property(x => x.Note).HasMaxLength(300);
+        b.HasIndex(x => x.ClientTransactionId).IsUnique().HasFilter("\"ClientTransactionId\" IS NOT NULL");
 
         b.HasOne(x => x.Shift).WithMany(s => s.Expenses).HasForeignKey(x => x.ShiftId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne(x => x.ExpenseCategory).WithMany().HasForeignKey(x => x.ExpenseCategoryId).OnDelete(DeleteBehavior.Restrict);

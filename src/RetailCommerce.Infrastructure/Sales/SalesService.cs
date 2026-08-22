@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using RetailCommerce.Application.Common;
 using RetailCommerce.Application.Sales;
 using RetailCommerce.Domain.Common;
@@ -7,6 +6,7 @@ using RetailCommerce.Domain.Inventory;
 using RetailCommerce.Domain.Parties;
 using RetailCommerce.Domain.Sales;
 using RetailCommerce.Domain.Sync;
+using RetailCommerce.Infrastructure.Common;
 using RetailCommerce.Infrastructure.Persistence;
 
 namespace RetailCommerce.Infrastructure.Sales;
@@ -273,7 +273,7 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
     }
 
     private static bool IsClientTransactionIdConflict(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "IX_Orders_ClientTransactionId" };
+        ex.IsUniqueViolationOn("IX_Orders_ClientTransactionId");
 
     private async Task LogSyncAsync(Guid orderId, Guid? clientTransactionId, SyncLogStatus status, string? errorMessage, CancellationToken ct)
     {
@@ -383,14 +383,21 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
         return Math.Min(100, discount.Value / lineSubtotal * 100);
     }
 
-    private IQueryable<Order> Query() =>
+    private IQueryable<Order> Query() => Query(db);
+
+    /// <summary>Static + internal so SyncService (same assembly) can reuse the exact same
+    /// Include chain for its own GET /api/sync/orders query rather than duplicating it.</summary>
+    internal static IQueryable<Order> Query(AppDbContext db) =>
         db.Orders
             .Include(o => o.Customer)
             .Include(o => o.Warehouse).ThenInclude(w => w.Store)
             .Include(o => o.SalesPerson)
             .Include(o => o.Lines);
 
-    private async Task<Dictionary<Guid, string>> GetCashierNamesAsync(IReadOnlyList<Order> orders, CancellationToken ct)
+    private Task<Dictionary<Guid, string>> GetCashierNamesAsync(IReadOnlyList<Order> orders, CancellationToken ct) =>
+        GetCashierNamesAsync(db, orders, ct);
+
+    internal static async Task<Dictionary<Guid, string>> GetCashierNamesAsync(AppDbContext db, IReadOnlyList<Order> orders, CancellationToken ct)
     {
         var userIds = orders.Where(o => o.CreatedByUserId.HasValue).Select(o => o.CreatedByUserId!.Value).Distinct().ToList();
         if (userIds.Count == 0) return new Dictionary<Guid, string>();
@@ -401,7 +408,9 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
             .ToDictionaryAsync(u => u.Id, u => $"{u.FirstName}{(u.LastName is { Length: > 0 } ln ? " " + ln : "")}", ct);
     }
 
-    private static SaleDto ToDto(Order o, IReadOnlyDictionary<Guid, string> cashierNames) => new(
+    /// <summary>Internal (not private) so SyncService can reuse this exact mapping for GET
+    /// /api/sync/orders instead of duplicating it — see SaleLineDto.Id's doc comment.</summary>
+    internal static SaleDto ToDto(Order o, IReadOnlyDictionary<Guid, string> cashierNames) => new(
         o.Id, o.OrderNumber, o.CustomerId, o.Customer is null ? null : $"{o.Customer.FirstName}{(o.Customer.LastName is { Length: > 0 } ln ? " " + ln : "")}",
         o.WarehouseId, o.Warehouse.Name, o.Channel.ToString(), o.Status.ToString(),
         o.Subtotal, o.DiscountAmount, o.TaxAmount, o.Total, o.DiscountLabel,
@@ -411,7 +420,7 @@ public class SalesService(AppDbContext db, IDocumentNumberService documentNumber
         o.Warehouse.Store is null ? null : new ReceiptStoreInfoDto(
             o.Warehouse.Store.Address, o.Warehouse.Store.Phone, o.Warehouse.Store.Email,
             o.Warehouse.Store.Ntn, o.Warehouse.Store.Strn, o.Warehouse.Store.ReceiptFooterText),
-        o.Lines.Select(l => new SaleLineDto(l.ProductId, l.ProductName, l.Quantity, l.UnitPrice, l.TaxRatePercent, l.DiscountPercent, l.LineTotal)).ToList(),
+        o.Lines.Select(l => new SaleLineDto(l.Id, l.ProductId, l.ProductName, l.Quantity, l.UnitPrice, l.TaxRatePercent, l.DiscountPercent, l.LineTotal)).ToList(),
         o.CreatedAtUtc,
         o.ClientTransactionId,
         o.CapturedOffline);

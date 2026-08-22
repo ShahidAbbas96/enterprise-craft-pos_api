@@ -22,5 +22,11 @@ public class Customer : BaseEntity
     public string? Notes { get; set; }
     public PartyStatus Status { get; set; } = PartyStatus.Active;
 
+    /// <summary>Client-generated (crypto.randomUUID()) idempotency key for offline-first POS
+    /// sync — a retried submission of the same queued "quick add customer" carries the same
+    /// value, letting CustomerService detect and safely no-op the duplicate. Null for customers
+    /// created through the regular (always-online) back-office Customers screen.</summary>
+    public Guid? ClientTransactionId { get; set; }
+
     public string FullName => LastName is { Length: > 0 } ? $"{FirstName} {LastName}" : FirstName;
 }

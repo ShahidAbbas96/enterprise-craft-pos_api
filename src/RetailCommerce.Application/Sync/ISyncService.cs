@@ -16,5 +16,11 @@ public interface ISyncService
     /// BootstrapAsync (first-ever pull has nothing to diff against).</summary>
     Task<SyncSnapshotDto> PullAsync(DateTimeOffset? since, CancellationToken ct = default);
 
+    /// <summary>Recent orders for the caller's own resolved warehouse, windowed to roughly
+    /// PosSettings.ReturnPolicyDays and delta-filterable by `since` exactly like the main
+    /// snapshot's Products/Customers/Discounts — feeds the offline POS's local "recent orders"
+    /// cache (Search Slip, POS Reports, Returns lookup). A null cursor returns the full window.</summary>
+    Task<IReadOnlyList<OrderSyncDto>> PullOrdersAsync(DateTimeOffset? since, CancellationToken ct = default);
+
     Task<PagedResult<SyncLogDto>> ListLogsAsync(SyncLogListQuery query, CancellationToken ct = default);
 }

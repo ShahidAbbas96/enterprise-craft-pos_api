@@ -35,8 +35,8 @@ public class ShiftsController(IShiftService shiftService) : ControllerBase
         Ok(await shiftService.AddExpenseAsync(id, request, CurrentUserId, ct));
 
     [HttpPost("{id:guid}/close")]
-    public async Task<ActionResult<ShiftDto>> Close(Guid id, CancellationToken ct) =>
-        Ok(await shiftService.CloseShiftAsync(id, CurrentUserId, ct));
+    public async Task<ActionResult<ShiftDto>> Close(Guid id, CloseShiftRequest request, CancellationToken ct) =>
+        Ok(await shiftService.CloseShiftAsync(id, request, CurrentUserId, ct));
 
     private Guid? CurrentUserId =>
         Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : null;

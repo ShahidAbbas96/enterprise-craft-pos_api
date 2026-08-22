@@ -19,6 +19,9 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         b.Property(x => x.Type).HasConversion<string>().HasMaxLength(20);
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
         b.HasIndex(x => x.Phone).IsUnique();
+        // Offline-sync idempotency key — same filtered-unique-index pattern as
+        // Order.ClientTransactionId / Product.Barcode.
+        b.HasIndex(x => x.ClientTransactionId).IsUnique().HasFilter("\"ClientTransactionId\" IS NOT NULL");
     }
 }
 
